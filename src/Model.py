@@ -3,6 +3,11 @@ import arviz as az
 import pymc as pm
 import matplotlib.pyplot as plt
 class Model:
+    '''
+    Simplistic Bayesian Hierarchical Model.
+    
+    Only uncertainties are in Y. 2D uncertainties, covariance, and multiple predictor model coming soonish!!
+    '''
     def __init__(self,version,x,y_obs,y_err_low,y_err_high):
         self.version = version
         self.x = x
@@ -59,3 +64,12 @@ class Model:
                 
                 return idata, graph, f"Ran {self.y_obs} vs {self.x} with non-centered model"
         
+        
+    
+    def plot_posterior():
+        '''
+        prior vs truth vs posterior samples plots
+        '''
+        pass
+    
+    

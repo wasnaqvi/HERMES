@@ -10,4 +10,29 @@ class Survey(Model):
     
     @staticmethod
     def compute_leverage(arr):
+        '''
+        Nic and Ben Leverage
+        '''
         return lambda arr: float(np.sum((arr - np.mean(arr))**2))
+    
+    def run_survey_samples(self,n_samples=5, survey_sizes:list=[]):
+        '''
+        the goal is to run the model here(super.build_model for each survey in the survey sizes list)
+        should return the dataframe for all the survey sizes
+        
+        '''
+        pass
+    
+    def plot_survey_results(self):
+        '''
+        plot prior vs truth vs posterior samples plots for each survey size.
+        You inherit the plot_posterior from the Bayesian linear Model use that
+        
+        '''
+        pass
+    
+    def leverage_analysis(self):
+        '''
+        leverage analysis for each survey size.
+        '''
+        pass
