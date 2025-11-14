@@ -21,6 +21,7 @@ class Survey(Model):
         should return the dataframe for all the survey sizes
         
         '''
+        
         pass
     
     def plot_survey_results(self):
@@ -34,5 +35,11 @@ class Survey(Model):
     def leverage_analysis(self):
         '''
         leverage analysis for each survey size.
+        '''
+        pass
+    
+    def generate_report(self):
+        '''
+        generate a report for the survey results.
         '''
         pass

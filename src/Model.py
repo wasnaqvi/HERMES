@@ -4,7 +4,7 @@ import pymc as pm
 import matplotlib.pyplot as plt
 class Model:
     '''
-    Simplistic Bayesian Hierarchical Model.
+    Introducing HERMES: HiERarchical bayesian Models for Exoplanet Science. 
     
     Only uncertainties are in Y. 2D uncertainties, covariance, and multiple predictor model coming soonish!!
     '''
@@ -18,6 +18,9 @@ class Model:
 
         
     def build_model(self,n_samples,random_seed=42, centered=True):
+        '''
+        2D Bayesian Linear Model with pymc.
+        '''
         if centered:
             x = np.asarray(self.x)
             y_obs = np.asarray(self.y_obs)
@@ -65,11 +68,12 @@ class Model:
                 return idata, graph, f"Ran {self.y_obs} vs {self.x} with non-centered model"
         
         
-    
-    def plot_posterior():
+    def multi_dimensional_model(self):
         '''
-        prior vs truth vs posterior samples plots
+        3D Bayesian Linear Model with pymc.
+        Goal is to have stellar metallicity + uncertainties added from the Ariel List of Targets
         '''
         pass
     
+   
     
