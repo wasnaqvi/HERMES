@@ -1,1 +1,6 @@
 *.csv
+*.png
+*.pdf
+results/
+plots/
+dataset/

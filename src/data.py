@@ -1,54 +1,65 @@
-import pandas as pd
-import numpy as np
+# src/data.py
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Dict
 
-
-def compute_leverage(arr: np.ndarray) -> float:
-    """L = sqrt(sum_i (y_i - mean(y))^2)."""
-    arr = np.asarray(arr, float)
-    m = np.isfinite(arr)
-    arr = arr[m]
-    if arr.size < 2:
-        return 0.0
-    return float(np.sqrt(np.sum((arr - arr.mean())**2)))
+import numpy as np
+import pandas as pd
 
 
 @dataclass
 class HermesData:
-    '''
-    Handles synthetic HERMES data from MCS etc.
-    '''
+    """
+    Thin wrapper around the HERMES dataframe.
+    """
     df: pd.DataFrame
-    
+
     @classmethod
-    def from_csv(cls, filepath: str) -> 'HermesData':
-        df = pd.read_csv(filepath)
-        return cls(
-            df=df
-        )
-    
-    @property
-    def logM(self) -> pd.Series:
-        return self.df['logM']
+    def from_csv(cls, path: str) -> "HermesData":
+        """
+        Load the synthetic HERMES CSV and wrap it.
+        """
+        df = pd.read_csv(path)
+        return cls(df=df)
 
     @property
-    def met(self) -> pd.Series:
-        return self.df['log(X_H2O)']
-    
-    def uncertainty_upper(self):
-        # can also use np.full_like if needed
-        return self.df['log(X_H2O)_err_high']
-    def uncertainty_lower(self):
-         # can also use np.full_like if needed
-        return self.df['log(X_H2O)_err_low']
-    
-    def subset_by_mass(self, min_mass: float, max_mass: float) -> 'HermesData':
-        mask = (self.df['logM'] >= min_mass) & (self.df['logM'] <= max_mass)
-        return HermesData(df=self.df[mask].reset_index(drop=True))
+    def n(self) -> int:
+        return len(self.df)
 
-        
-    
+    def describe_columns(self) -> pd.DataFrame:
+        """
+        Convenience: get basic stats on key columns.
+        """
+        cols = ["logM", "log(X_H2O)", "uncertainty_lower", "uncertainty_upper"]
+        cols = [c for c in cols if c in self.df.columns]
+        return self.df[cols].describe()
 
+    def mass_quantile_classes(
+        self,
+        mass_col: str = "logM",
+    ) -> Dict[str, "HermesData"]:
+        """
+        Return four nested mass classes S1..S4 based on quartiles of logM,
+        matching what SurveySampler does.
 
+        - S1: full sample
+        - S2: logM >= 25th percentile
+        - S3: logM >= 50th percentile
+        - S4: logM >= 75th percentile
+        """
+        df = self.df.copy()
+        logM = df[mass_col].to_numpy(float)
 
+        q25, q50, q75 = np.quantile(logM, [0.25, 0.5, 0.75])
 
+        mask2 = logM >= q25
+        mask3 = logM >= q50
+        mask4 = logM >= q75
+
+        return {
+            "S1": HermesData(df.reset_index(drop=True)),
+            "S2": HermesData(df.loc[mask2].reset_index(drop=True)),
+            "S3": HermesData(df.loc[mask3].reset_index(drop=True)),
+            "S4": HermesData(df.loc[mask4].reset_index(drop=True)),
+        }
