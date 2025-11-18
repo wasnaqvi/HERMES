@@ -15,5 +15,7 @@ def generate_report(self):
         '''
         Generate a report with all the plots and Model details
         return a pdf file 
+        
+        
         '''
         pass

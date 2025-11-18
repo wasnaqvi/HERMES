@@ -1,17 +1,32 @@
 from .Model import Model
+from .data import HermesData
 import numpy as np
-class Survey(Model):
+import pandas as pd
+
+from collections.abc import Iterable
+
+class Survey():
     
-    def __init__(self,version,data:list):
-        x, y_obs, y_err_low, y_err_high = zip(*data)
-        super().__init__(version,x,y_obs,y_err_low,y_err_high)
-        self.surveys = []
-        self.plots = []
-    
+    def __init__(self, dataset: HermesData, idx: Iterable[int], survey_id: int | None = None):
+        """
+        Parameters
+        ----------
+        dataset : HermesData
+            The full HERMES dataset.
+        idx : iterable of int / pd.Index
+            Row indices in dataset.df that belong to this survey.
+        survey_id : 
+            for bookkeeping.
+        """
+        self._dataset = dataset
+        self._idx = pd.Index(idx)
+        self.survey_id = survey_id
+        
     @staticmethod
     def compute_leverage(arr):
         '''
         Nic and Ben Leverage
+        eh dont need this here
         '''
         return lambda arr: float(np.sum((arr - np.mean(arr))**2))
     
@@ -26,6 +41,7 @@ class Survey(Model):
     
     def plot_survey_results(self):
         '''
+        goes in analysis.py
         plot prior vs truth vs posterior samples plots for each survey size.
         You inherit the plot_posterior from the Bayesian linear Model use that
         
@@ -35,11 +51,7 @@ class Survey(Model):
     def leverage_analysis(self):
         '''
         leverage analysis for each survey size.
+        Nah. Dont need this here.
         '''
         pass
     
-    def generate_report(self):
-        '''
-        generate a report for the survey results.
-        '''
-        pass
