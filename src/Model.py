@@ -151,3 +151,51 @@ class Model:
             idata = self.fit_survey(survey, random_seed=rs)
             rows.append(self.summarize_single(survey, idata))
         return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
+
+
+class MetModel(Model):
+    '''
+    3D Model. 
+    mass is still the predictor. 
+    Now we have both planetary metallicity and stellar metallicity as responses.
+    Fit separately for both responses.?
+    Have a copula to model the correlation between the two responses?
+    Sigma($\Sigma$) is now a 2x2 covariance matrix?
+    Uses the same parameters as Model.
+    
+    
+    Keep up the 
+    
+    '''
+    def __init__(self, draws: int = 2000, tune: int = 1000, target_accept: float = 0.9):
+        self.draws = draws
+        self.tune = tune
+        self.target_accept = target_accept
+
+    def fit_survey(self, survey: Survey, random_seed: int = 14) -> az.InferenceData:
+        df = survey.df
+        idata_met = _fit_leverage_survey(
+            df["logM"].values,
+            df["log(X_H2O)"].values,
+            df["uncertainty_lower"].values,
+            df["uncertainty_upper"].values,
+            draws=self.draws,
+            tune=self.tune,
+            target_accept=self.target_accept,
+            random_seed=random_seed,
+        )
+        idata_stel = _fit_leverage_survey(
+            df["logM"].values,
+            df["stellar_logFeH"].values,
+            df["stellar_uncertainty_lower"].values,
+            df["stellar_uncertainty_upper"].values,
+            draws=self.draws,
+            tune=self.tune,
+            target_accept=self.target_accept,
+            random_seed=random_seed+1,  # different seed
+        )
+        # Combine both InferenceData objects
+        idata_combined = az.concat(idata_met, idata_stel, dim="posterior")
+        return idata_combined
+    
+    def copula
