@@ -88,90 +88,6 @@ def _fit_leverage_survey(
 
     return idata
 
-import pymc as pm
-import numpy as np
-import arviz as az
-
-def _fit_met_survey(
-    x, y_planet, ystar,
-    y_planet_err_low, y_planet_err_high,
-    ystar_err_low, ystar_err_high,
-    draws=2000, tune=1000, target_accept=0.9, random_seed=14
-) -> az.InferenceData:
-    x = np.asarray(x, float).ravel()
-    yp = np.asarray(y_planet, float).ravel()
-    ys = np.asarray(ystar, float).ravel()
-    el_p = np.asarray(y_planet_err_low, float).ravel()
-    eh_p = np.asarray(y_planet_err_high, float).ravel()
-    el_s = np.asarray(ystar_err_low, float).ravel()
-    eh_s = np.asarray(ystar_err_high, float).ravel()
-
-    m = (
-        np.isfinite(x) & np.isfinite(yp) & np.isfinite(ys)
-        & np.isfinite(el_p) & np.isfinite(eh_p)
-        & np.isfinite(el_s) & np.isfinite(eh_s)
-    )
-    x, yp, ys, el_p, eh_p, el_s, eh_s = x[m], yp[m], ys[m], el_p[m], eh_p[m], el_s[m], eh_s[m]
-
-    sig_meas_p = 0.5*(np.abs(el_p) + np.abs(eh_p))
-    sig_meas_s = 0.5*(np.abs(el_s) + np.abs(eh_s))
-    sig_meas_p = np.clip(sig_meas_p, 1e-6, None)
-    sig_meas_s = np.clip(sig_meas_s, 1e-6, None)
-
-    x_mean = float(x.mean())
-    x_c = x - x_mean
-
-    with pm.Model() as model:
-        x_c_data   = pm.Data("x_c", x_c)
-        sig_p_data = pm.Data("sig_meas_p", sig_meas_p)
-        sig_s_data = pm.Data("sig_meas_s", sig_meas_s)
-
-        # planet regression
-        alpha_p = pm.Normal("alpha_p", mu=float(yp.mean()), sigma=float(yp.std() / np.sqrt(len(yp)) + 1e-3))
-        beta_p  = pm.Normal("beta_p",  mu=0.0, sigma=float(np.ptp(yp)/(np.ptp(x_c) or 1.0)))
-
-        # stellar regression
-        alpha_s = pm.Normal("alpha_s", mu=float(ys.mean()), sigma=float(ys.std() / np.sqrt(len(ys)) + 1e-3))
-        beta_s  = pm.Normal("beta_s",  mu=0.0, sigma=float(np.ptp(ys)/(np.ptp(x_c) or 1.0)))
-
-        mu_p = alpha_p + beta_p * x_c_data
-        mu_s = alpha_s + beta_s * x_c_data
-
-        # intrinsic 2x2 covariance via LKJ
-        chol, corr, sigmas = pm.LKJCholeskyCov(
-            "chol_cov",
-            n=2,
-            eta=2.0,
-            sd_dist=pm.HalfNormal.dist(0.5),
-            compute_corr=True,
-        )
-        sigma_p, sigma_s = sigmas
-        rho = corr[0, 1]
-
-        # latent true metallicities with intrinsic covariance
-        z = pm.MvNormal(
-            "z",
-            mu=pm.math.stack([mu_p, mu_s], axis=-1),
-            chol=chol,
-            shape=(x.size, 2),
-        )
-
-        # observed with measurement noise (independent)
-        pm.Normal("y_planet", mu=z[:, 0], sigma=sig_p_data, observed=yp)
-        pm.Normal("y_star",   mu=z[:, 1], sigma=sig_s_data, observed=ys)
-
-        idata = pm.sample(
-            draws=draws,
-            tune=tune,
-            target_accept=target_accept,
-            random_seed=random_seed,
-            return_inferencedata=True,
-            progressbar=False,
-        )
-
-    return idata
-
-
 class Model:
     """
     Wraps the PyMC linear+intrinsic-scatter model
@@ -235,13 +151,147 @@ class Model:
             rows.append(self.summarize_single(survey, idata))
         return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
 
+import pymc as pm
+import numpy as np
+import arviz as az
+import pandas as pd
+from typing import List
+from .Survey import Survey  # already there above
+
+
+def _fit_met_survey(
+    x,
+    y_planet,
+    ystar,
+    y_planet_err_low,
+    y_planet_err_high,
+    ystar_err_low,
+    ystar_err_high,
+    draws: int = 2000,
+    tune: int = 1000,
+    target_accept: float = 0.9,
+    random_seed: int = 14,
+) -> az.InferenceData:
+    """
+    Bivariate leverage model:
+
+      x = logM (centered)
+      y_p = planetary metallicity log(X_H2O)
+      y_s = stellar metallicity [Fe/H]
+
+    Each is modeled as:
+        y_p ~ alpha_p + beta_p * (x - mean_x)
+        y_s ~ alpha_s + beta_s * (x - mean_x)
+
+    with an intrinsic 2x2 covariance on (y_p, y_s) on top of
+    heteroskedastic measurement noise for each component.
+    """
+
+    x = np.asarray(x, float).ravel()
+    yp = np.asarray(y_planet, float).ravel()
+    ys = np.asarray(ystar, float).ravel()
+    el_p = np.asarray(y_planet_err_low, float).ravel()
+    eh_p = np.asarray(y_planet_err_high, float).ravel()
+    el_s = np.asarray(ystar_err_low, float).ravel()
+    eh_s = np.asarray(ystar_err_high, float).ravel()
+
+    m = (
+        np.isfinite(x) & np.isfinite(yp) & np.isfinite(ys)
+        & np.isfinite(el_p) & np.isfinite(eh_p)
+        & np.isfinite(el_s) & np.isfinite(eh_s)
+    )
+    x, yp, ys, el_p, eh_p, el_s, eh_s = (
+        x[m], yp[m], ys[m], el_p[m], eh_p[m], el_s[m], eh_s[m]
+    )
+
+    if x.size == 0:
+        raise ValueError("No finite rows for metallicity model in this survey.")
+
+    sig_meas_p = 0.5 * (np.abs(el_p) + np.abs(eh_p))
+    sig_meas_s = 0.5 * (np.abs(el_s) + np.abs(eh_s))
+    sig_meas_p = np.clip(sig_meas_p, 1e-6, None)
+    sig_meas_s = np.clip(sig_meas_s, 1e-6, None)
+
+    x_mean = float(x.mean())
+    x_c = x - x_mean
+
+    span_x = float(np.ptp(x_c) or 1.0)
+    span_p = float(np.ptp(yp) or 1.0)
+    span_s = float(np.ptp(ys) or 1.0)
+
+    with pm.Model() as model:
+        x_c_data   = pm.Data("x_c", x_c)
+        sig_p_data = pm.Data("sig_meas_p", sig_meas_p)
+        sig_s_data = pm.Data("sig_meas_s", sig_meas_s)
+
+        # planetary regression
+        alpha_p = pm.Normal(
+            "alpha_p",
+            mu=float(yp.mean()),
+            sigma=float(yp.std() / np.sqrt(len(yp)) + 1e-3),
+        )
+        beta_p = pm.Normal(
+            "beta_p",
+            mu=0.0,
+            sigma=span_p / span_x,
+        )
+
+        # stellar regression
+        alpha_s = pm.Normal(
+            "alpha_s",
+            mu=float(ys.mean()),
+            sigma=float(ys.std() / np.sqrt(len(ys)) + 1e-3),
+        )
+        beta_s = pm.Normal(
+            "beta_s",
+            mu=0.0,
+            sigma=span_s / span_x,
+        )
+
+        mu_p = alpha_p + beta_p * x_c_data
+        mu_s = alpha_s + beta_s * x_c_data
+
+        # intrinsic 2x2 covariance via LKJ
+        chol_raw, corr, sigmas_raw = pm.LKJCholeskyCov(
+            "chol_raw",
+            n=2,
+            eta=2.0,
+            sd_dist=pm.HalfNormal.dist(0.5),
+            compute_corr=True,
+        )
+        # name the components explicitly
+        sigma_p = pm.Deterministic("sigma_p", sigmas_raw[0])
+        sigma_s = pm.Deterministic("sigma_s", sigmas_raw[1])
+        rho     = pm.Deterministic("rho", corr[0, 1])
+
+        # latent true metallicities with intrinsic covariance
+        mu_vec = pm.math.stack([mu_p, mu_s], axis=-1)  # shape (n, 2)
+        z = pm.MvNormal(
+            "z",
+            mu=mu_vec,
+            chol=chol_raw,
+            shape=(x.size, 2),
+        )
+
+        # observed with independent measurement noise
+        pm.Normal("y_planet", mu=z[:, 0], sigma=sig_p_data, observed=yp)
+        pm.Normal("y_star",   mu=z[:, 1], sigma=sig_s_data, observed=ys)
+
+        idata = pm.sample(
+            draws=draws,
+            tune=tune,
+            target_accept=target_accept,
+            random_seed=random_seed,
+            return_inferencedata=True,
+            progressbar=False,
+        )
+
+    return idata
+
 
 class MetModel:
     """
-    Two–response metallicity model:
-      - planetary metallicity log(X_H2O) vs logM
-      - stellar metallicity Star Metallicity vs logM
-    with a 2×2 intrinsic covariance (sigma_p, sigma_s, rho).
+    2D metallicity model: planet + star metallicities vs logM, with intrinsic 2x2 covariance.
     """
 
     def __init__(self, draws: int = 2000, tune: int = 1000, target_accept: float = 0.9):
@@ -257,7 +307,6 @@ class MetModel:
             df["Star Metallicity"].values,
             df["uncertainty_lower"].values,
             df["uncertainty_upper"].values,
-            # ⚠️ make sure these match your CSV column names exactly:
             df["Star Metallicity Error Lower"].values,
             df["Star Metallicity Error Upper"].values,
             draws=self.draws,
@@ -268,20 +317,13 @@ class MetModel:
 
     def summarize_single(self, survey: Survey, idata: az.InferenceData) -> dict:
         """
-        Summarize key parameters for one survey:
-          alpha_p, beta_p, alpha_s, beta_s, sigma_p, sigma_s, rho.
+        Extract posterior means, SDs, and 68% HDIs for:
+          alpha_p, beta_p, alpha_s, beta_s, sigma_p, sigma_s, rho
         """
-        # we’ll summarize these parameters from the joint model
-        params = [
-            "alpha_p", "beta_p",
-            "alpha_s", "beta_s",
-            "sigma_p", "sigma_s",
-            "rho",
-        ]
-
         summ = az.summary(
             idata,
-            var_names=params,
+            var_names=["alpha_p", "beta_p", "alpha_s", "beta_s",
+                       "sigma_p", "sigma_s", "rho"],
             hdi_prob=0.68,
             round_to=None,
         )
@@ -294,18 +336,23 @@ class MetModel:
             "L_logM": survey.leverage(col="logM"),
         }
 
-        for p in params:
-            row[f"{p}_mean"]  = float(summ.loc[p, "mean"])
-            row[f"{p}_sd"]    = float(summ.loc[p, "sd"])
-            row[f"{p}_hdi16"] = float(summ.loc[p, "hdi_16%"])
-            row[f"{p}_hdi84"] = float(summ.loc[p, "hdi_84%"])
+        def add_param(prefix, name):
+            row[f"{prefix}_mean"]   = float(summ.loc[name, "mean"])
+            row[f"{prefix}_sd"]     = float(summ.loc[name, "sd"])
+            row[f"{prefix}_hdi16"]  = float(summ.loc[name, "hdi_16%"])
+            row[f"{prefix}_hdi84"]  = float(summ.loc[name, "hdi_84%"])
+
+        add_param("alpha_p", "alpha_p")
+        add_param("beta_p",  "beta_p")
+        add_param("alpha_s", "alpha_s")
+        add_param("beta_s",  "beta_s")
+        add_param("sigma_p", "sigma_p")
+        add_param("sigma_s", "sigma_s")
+        add_param("rho",     "rho")
 
         return row
 
-    def run_on_surveys(self, surveys: List[Survey], seed: int = 123) -> pd.DataFrame:
-        """
-        Run the MetModel on a list of Survey objects and return a summary DataFrame.
-        """
+    def run_on_surveys(self, surveys: List[Survey], seed: int = 321) -> pd.DataFrame:
         rng = np.random.default_rng(seed)
         rows = []
         for survey in surveys:
