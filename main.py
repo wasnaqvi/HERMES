@@ -41,7 +41,14 @@ def main() -> None:
 
     csv_path = results_dir / "hermes_massclass_fits.csv"
     fit_df.to_csv(csv_path, index=False)
+    
+    
+    # Running Metallicity Model.
+    met_model = MetModel(draws=1000, tune=1000, target_accept=0.9)
+    met_fit_df = met_model.run_on_surveys(surveys, seed=321)
 
+    met_csv_path = results_dir / "hermes_met_fits.csv"
+    met_fit_df.to_csv(met_csv_path, index=False)
     
     #per-N σ vs L panels
     make_fixedN_sigma_vs_L_scatter_from_df(

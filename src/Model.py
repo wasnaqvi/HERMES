@@ -237,7 +237,14 @@ class Model:
 
 
 class MetModel:
-    def __init__(self, draws=2000, tune=1000, target_accept=0.9):
+    """
+    Two–response metallicity model:
+      - planetary metallicity log(X_H2O) vs logM
+      - stellar metallicity Star Metallicity vs logM
+    with a 2×2 intrinsic covariance (sigma_p, sigma_s, rho).
+    """
+
+    def __init__(self, draws: int = 2000, tune: int = 1000, target_accept: float = 0.9):
         self.draws = draws
         self.tune = tune
         self.target_accept = target_accept
@@ -247,13 +254,62 @@ class MetModel:
         return _fit_met_survey(
             df["logM"].values,
             df["log(X_H2O)"].values,
-            df["stellar_logFeH"].values,
+            df["Star Metallicity"].values,
             df["uncertainty_lower"].values,
             df["uncertainty_upper"].values,
-            df["stellar_uncertainty_lower"].values,
-            df["stellar_uncertainty_upper"].values,
+            # ⚠️ make sure these match your CSV column names exactly:
+            df["Star Metallicity Error Lower"].values,
+            df["Star Metallicity Error Upper"].values,
             draws=self.draws,
             tune=self.tune,
             target_accept=self.target_accept,
             random_seed=random_seed,
         )
+
+    def summarize_single(self, survey: Survey, idata: az.InferenceData) -> dict:
+        """
+        Summarize key parameters for one survey:
+          alpha_p, beta_p, alpha_s, beta_s, sigma_p, sigma_s, rho.
+        """
+        # we’ll summarize these parameters from the joint model
+        params = [
+            "alpha_p", "beta_p",
+            "alpha_s", "beta_s",
+            "sigma_p", "sigma_s",
+            "rho",
+        ]
+
+        summ = az.summary(
+            idata,
+            var_names=params,
+            hdi_prob=0.68,
+            round_to=None,
+        )
+
+        row = {
+            "survey_id": survey.survey_id,
+            "class_label": survey.class_label,
+            "N": survey.n,
+            "L_met": survey.leverage(col="log(X_H2O)"),
+            "L_logM": survey.leverage(col="logM"),
+        }
+
+        for p in params:
+            row[f"{p}_mean"]  = float(summ.loc[p, "mean"])
+            row[f"{p}_sd"]    = float(summ.loc[p, "sd"])
+            row[f"{p}_hdi16"] = float(summ.loc[p, "hdi_16%"])
+            row[f"{p}_hdi84"] = float(summ.loc[p, "hdi_84%"])
+
+        return row
+
+    def run_on_surveys(self, surveys: List[Survey], seed: int = 123) -> pd.DataFrame:
+        """
+        Run the MetModel on a list of Survey objects and return a summary DataFrame.
+        """
+        rng = np.random.default_rng(seed)
+        rows = []
+        for survey in surveys:
+            rs = int(rng.integers(0, 2**32 - 1))
+            idata = self.fit_survey(survey, random_seed=rs)
+            rows.append(self.summarize_single(survey, idata))
+        return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
