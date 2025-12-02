@@ -5,7 +5,7 @@ from pathlib import Path
 
 from src.data import HermesData
 from src.Survey import SurveySampler
-from src.Model import Model
+from src.Model import Model,MetModel
 from src.plots import make_leverage_panels_from_df,make_design_space_N_with_L_contours,make_fixedN_sigma_vs_L_scatter_from_df
 from src.report import HermesReport
 
