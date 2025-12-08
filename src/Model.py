@@ -84,6 +84,7 @@ def _fit_leverage_survey(
             random_seed=random_seed,
             return_inferencedata=True,
             progressbar=False,
+            idata_kwargs={"log_likelihood": True},
         )
 
     return idata
@@ -294,6 +295,7 @@ def _fit_met_survey(
             random_seed=random_seed,
             return_inferencedata=True,
             progressbar=False,
+            idata_kwargs={"log_likelihood": True},
         )
 
     return idata
