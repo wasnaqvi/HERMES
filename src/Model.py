@@ -297,7 +297,6 @@ def _fit_met_survey(
         )
 
     return idata
-
 class MetModel:
     """
     Bi-variate regression of planetary metallicity on:
@@ -360,77 +359,6 @@ class MetModel:
         add_param("beta_m",  "beta_m")
         add_param("beta_s",  "beta_s")
         add_param("sigma_p", "sigma_p")
-
-        return row
-
-    def run_on_surveys(self, surveys: List[Survey], seed: int = 321) -> pd.DataFrame:
-        rng = np.random.default_rng(seed)
-        rows = []
-        for survey in surveys:
-            rs = int(rng.integers(0, 2**32 - 1))
-            idata = self.fit_survey(survey, random_seed=rs)
-            rows.append(self.summarize_single(survey, idata))
-        return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
-
-    """
-    2D metallicity model: planet + star metallicities vs logM, with intrinsic 2x2 covariance.
-    """
-
-    def __init__(self, draws: int = 2000, tune: int = 1000, target_accept: float = 0.9):
-        self.draws = draws
-        self.tune = tune
-        self.target_accept = target_accept
-
-    def fit_survey(self, survey: Survey, random_seed: int = 14) -> az.InferenceData:
-        df = survey.df
-        return _fit_met_survey(
-            df["logM"].values,
-            df["log(X_H2O)"].values,
-            df["Star Metallicity"].values,
-            df["uncertainty_lower"].values,
-            df["uncertainty_upper"].values,
-            df["Star Metallicity Error Lower"].values,
-            df["Star Metallicity Error Upper"].values,
-            draws=self.draws,
-            tune=self.tune,
-            target_accept=self.target_accept,
-            random_seed=random_seed,
-        )
-
-    def summarize_single(self, survey: Survey, idata: az.InferenceData) -> dict:
-        """
-        Extract posterior means, SDs, and 68% HDIs for:
-          alpha_p, beta_p, alpha_s, beta_s, sigma_p, sigma_s, rho
-        """
-        summ = az.summary(
-            idata,
-            var_names=["alpha_p", "beta_p", "alpha_s", "beta_s",
-                       "sigma_p", "sigma_s", "rho"],
-            hdi_prob=0.68,
-            round_to=None,
-        )
-
-        row = {
-            "survey_id": survey.survey_id,
-            "class_label": survey.class_label,
-            "N": survey.n,
-            "L_met": survey.leverage(col="log(X_H2O)"),
-            "L_logM": survey.leverage(col="logM"),
-        }
-
-        def add_param(prefix, name):
-            row[f"{prefix}_mean"]   = float(summ.loc[name, "mean"])
-            row[f"{prefix}_sd"]     = float(summ.loc[name, "sd"])
-            row[f"{prefix}_hdi16"]  = float(summ.loc[name, "hdi_16%"])
-            row[f"{prefix}_hdi84"]  = float(summ.loc[name, "hdi_84%"])
-
-        add_param("alpha_p", "alpha_p")
-        add_param("beta_p",  "beta_p")
-        add_param("alpha_s", "alpha_s")
-        add_param("beta_s",  "beta_s")
-        add_param("sigma_p", "sigma_p")
-        add_param("sigma_s", "sigma_s")
-        add_param("rho",     "rho")
 
         return row
 
