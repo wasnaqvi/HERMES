@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-
+import pandas as pd
 from src.data import HermesData
 from src.Survey import SurveySampler
 from src.Model import MetModel
@@ -16,38 +16,29 @@ from src.plots import (
 
 def main() -> None:
     base_dir = Path(__file__).resolve().parent
-
-    # paths
     data_path = base_dir / "dataset" / "hermes_synthetic_data_0.2.0.csv"
     results_dir = base_dir / "results"
     plots_dir = results_dir / "plots_bivariate"
-
-    # make sure output dirs exist
     results_dir.mkdir(exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1) load data
     hermes = HermesData.from_csv(str(data_path))
 
     # 2) build surveys (same design as before)
-    sampler = SurveySampler(hermes, rng_seed=42)
-    N_grid = [30, 40, 50, 90, 100]
-    surveys = sampler.sample_grid(N_grid, n_reps_per_combo=10)
+    # sampler = SurveySampler(hermes, rng_seed=42)
+    # N_grid = [30, 40, 50, 90, 100]
+    # surveys = sampler.sample_grid(N_grid, n_reps_per_combo=10)
+    # make_design_space_N_with_L_contours(
+    #     surveys,
+    #     out_path=plots_dir / "hermes_met_design_space_N_Lcontours.pdf",
+    # )
+    # met_model = MetModel(draws=2000, tune=1000, target_accept=0.9)
+    # met_fit_df = met_model.run_on_surveys(surveys, seed=321)
 
-    # optional: design-space diagnostic
-    make_design_space_N_with_L_contours(
-        surveys,
-        out_path=plots_dir / "hermes_met_design_space_N_Lcontours.pdf",
-    )
-
-    # 3) run the METALLICITY model on all surveys
-    met_model = MetModel(draws=2000, tune=1000, target_accept=0.9)
-    met_fit_df = met_model.run_on_surveys(surveys, seed=321)
-
-    met_csv_path = results_dir / "hermes_met_bivariate.csv"
-    met_fit_df.to_csv(met_csv_path, index=False)
-    print("Wrote metallicity survey summaries to:", met_csv_path)
-
+    # met_csv_path = results_dir / "hermes_met_bivariate.csv"
+    # met_fit_df.to_csv(met_csv_path, index=False)
+    # print("Wrote metallicity survey summaries to:", met_csv_path)
+    
+    met_fit_df = pd.read_csv(results_dir / "hermes_met_bivariate.csv")
     # 4) Visualizations: fixed-N leverage panels + 3D slope view
     make_met_fixedN_uncertainty_vs_L_from_df(
         met_fit_df,

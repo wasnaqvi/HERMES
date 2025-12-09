@@ -710,9 +710,10 @@ def make_fixedN_sigma_vs_L_scatter_from_df(
         fig.savefig(out_file)  # vector (PDF)
         plt.close(fig)
 
-# ======================================================================
+
+# =====================================================================
 #  METALLICITY MODEL PANELS (MetModel)
-# ======================================================================
+# =====================================================================
 
 def _scatter_with_fits(
     ax,
@@ -726,10 +727,12 @@ def _scatter_with_fits(
 ):
     """
     Helper: scatter by class, then power-law + 1σ band + linear overlay.
+    Intended for positive y (uncertainties, sigmas, etc.).
     """
     x = np.asarray(x, float)
     y = np.asarray(y, float)
-    m = np.isfinite(x) & np.isfinite(y) & (x > 0)
+
+    m = np.isfinite(x) & np.isfinite(y) & (x > 0) & (y > 0)
     x_fit = x[m]
     y_fit = y[m]
 
@@ -791,18 +794,17 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
     L_col: str = "L_logM",
 ) -> None:
     """
-    For each distinct N (fixed-N panels), plot uncertainty (posterior SD) vs leverage:
+    For each distinct N (fixed-N panels), plot *uncertainty* (posterior SD)
+    vs leverage for the metallicity model:
 
-        - planet:  σα,p, σβ,p, σσ,p
-        - star:    σα,*, σβ,*, σσ,*
+        alpha_sd, beta_m_sd, beta_s_sd, sigma_p_sd.
 
-    Panels are 2x3; points are coloured by survey class (S1–S4),
+    Panels are 2x2; points are coloured by survey class (S1–S4),
     with power-law + 1σ band and linear overlay in each panel.
 
     Columns expected in df:
         N, class_label, L_col,
-        alpha_p_sd, beta_p_sd, sigma_p_sd,
-        alpha_s_sd, beta_s_sd, sigma_s_sd
+        alpha_sd, beta_m_sd, beta_s_sd, sigma_p_sd.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -819,12 +821,10 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
     }
 
     panels = [
-        ("alpha_p_sd", r"$\sigma_{\alpha,p}$"),
-        ("beta_p_sd",  r"$\sigma_{\beta,p}$"),
-        ("sigma_p_sd", r"$\sigma_{\varepsilon,p}$"),
-        ("alpha_s_sd", r"$\sigma_{\alpha,*}$"),
-        ("beta_s_sd",  r"$\sigma_{\beta,*}$"),
-        ("sigma_s_sd", r"$\sigma_{\varepsilon,*}$"),
+        ("alpha_sd",   r"$\sigma_{\alpha}$"),
+        ("beta_m_sd",  r"$\sigma_{\beta_m}$"),
+        ("beta_s_sd",  r"$\sigma_{\beta_s}$"),
+        ("sigma_p_sd", r"$\sigma_{\sigma_p}$"),
     ]
 
     for N0 in sorted(df["N"].unique()):
@@ -835,8 +835,11 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
         L_all = sub[L_col].to_numpy(float)
         labels = sub["class_label"].to_numpy(str)
 
-        fig, axes = plt.subplots(2, 3, figsize=(11.0, 6.0), sharex=True)
-        fig.suptitle(rf"Fixed $N={N0}$: posterior uncertainties vs. leverage", fontsize=12)
+        fig, axes = plt.subplots(2, 2, figsize=(8.5, 6.0), sharex=True)
+        fig.suptitle(
+            rf"Fixed $N={N0}$: posterior uncertainties vs. leverage",
+            fontsize=12,
+        )
 
         for ax, (col, ylabel) in zip(axes.ravel(), panels):
             y_all = sub[col].to_numpy(float)
@@ -888,11 +891,12 @@ def make_met_fixedN_covariance_vs_L_from_df(
     L_col: str = "L_logM",
 ) -> None:
     """
-    For each N, show how the *intrinsic covariance* parameters change with leverage:
+    For each N, show how the *intrinsic scatter* of the planetary metallicity
+    changes with leverage:
 
-        sigma_p_mean, sigma_s_mean, rho_mean vs L.
+        sigma_p_mean vs L_logM.
 
-    One 1x3 panel per N.
+    Written so you can add more columns later (e.g. sigma_s_mean, rho_mean).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -908,12 +912,6 @@ def make_met_fixedN_covariance_vs_L_from_df(
         "S4": "C3",
     }
 
-    panels = [
-        ("sigma_p_mean", r"$\sigma_{p}$"),
-        ("sigma_s_mean", r"$\sigma_{*}$"),
-        ("rho_mean",     r"$\rho_{p,*}$"),
-    ]
-
     for N0 in sorted(df["N"].unique()):
         sub = df[df["N"] == N0]
         if len(sub) < 3:
@@ -921,24 +919,26 @@ def make_met_fixedN_covariance_vs_L_from_df(
 
         L_all = sub[L_col].to_numpy(float)
         labels = sub["class_label"].to_numpy(str)
+        y_all = sub["sigma_p_mean"].to_numpy(float)
 
-        fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.2), sharex=True)
-        fig.suptitle(rf"Fixed $N={N0}$: intrinsic covariance vs. leverage", fontsize=12)
+        fig, ax = plt.subplots(1, 1, figsize=(5.0, 3.2), sharex=True)
+        fig.suptitle(
+            rf"Fixed $N={N0}$: intrinsic scatter vs. leverage",
+            fontsize=12,
+        )
 
-        for ax, (col, ylabel) in zip(axes, panels):
-            y_all = sub[col].to_numpy(float)
-            _scatter_with_fits(
-                ax,
-                L_all,
-                y_all,
-                labels,
-                class_order,
-                class_colors,
-                ylabel,
-                L_label_tex=r"$L(\log M)$",
-            )
+        _scatter_with_fits(
+            ax,
+            L_all,
+            y_all,
+            labels,
+            class_order,
+            class_colors,
+            r"$\sigma_p$",
+            L_label_tex=r"$L(\log M)$",
+        )
 
-        # legend on first axis
+        # legend
         handles, leg_labels = [], []
         for cls in class_order:
             if (sub["class_label"] == cls).any():
@@ -953,7 +953,7 @@ def make_met_fixedN_covariance_vs_L_from_df(
                 handles.append(h)
                 leg_labels.append(cls)
         if handles:
-            axes[0].legend(
+            ax.legend(
                 handles,
                 leg_labels,
                 title="class",
@@ -975,36 +975,66 @@ def make_met_global_slope_3d_from_df(
     L_col: str = "L_logM",
 ) -> None:
     """
-    3D view in (L, beta_p, beta_*) space across all surveys.
+    3D view of the *plane* being fit in parameter space.
 
-    This isn't the original data-space plane, but it shows how
-    *both* slopes vary together with leverage.
+    Each point is one survey, at coordinates
+
+        (beta_m_mean, beta_s_mean, alpha_mean),
+
+    colour–coded by leverage L(logM). A best-fit plane
+
+        alpha ≈ a0 + a1 * beta_m + a2 * beta_s
+
+    is overplotted.
     """
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
     out_path = Path(out_path)
     _ensure_dir_for(out_path)
 
-    df = df.copy()
+    beta_m = df["beta_m_mean"].to_numpy(float)
+    beta_s = df["beta_s_mean"].to_numpy(float)
+    alpha  = df["alpha_mean"].to_numpy(float)
+    L      = df[L_col].to_numpy(float)
 
-    L = df[L_col].to_numpy(float)
-    bp = df["beta_p_mean"].to_numpy(float)
-    bs = df["beta_s_mean"].to_numpy(float)
-    N  = df["N"].astype(int).to_numpy()
-
-    fig = plt.figure(figsize=(6.0, 5.0))
+    fig = plt.figure(figsize=(6.5, 5.5))
     ax = fig.add_subplot(111, projection="3d")
 
-    # colour by N to get a sense of survey size
-    sc = ax.scatter(L, bp, bs, c=N, s=25, alpha=0.8)
+    sc = ax.scatter(
+        beta_m,
+        beta_s,
+        alpha,
+        c=L,
+        s=35,
+        alpha=0.9,
+    )
 
-    ax.set_xlabel(r"$L(\log M)$")
-    ax.set_ylabel(r"$\beta_p$ (planet)")
-    ax.set_zlabel(r"$\beta_{*}$ (star)")
-    ax.set_title(r"Joint slope behaviour: $(L, \beta_p, \beta_{*})$")
+    ax.set_xlabel(r"$\beta_m$ (slope on $\log M$)")
+    ax.set_ylabel(r"$\beta_s$ (slope on stellar metallicity)")
+    ax.set_zlabel(r"$\alpha$ (intercept)")
+    ax.set_title(r"Survey planes in $(\beta_m,\beta_s,\alpha)$ space")
 
     cbar = fig.colorbar(sc, ax=ax, pad=0.1)
-    cbar.set_label("N (survey size)")
+    cbar.set_label(r"$L(\log M)$")
+
+    # Fit plane: alpha ≈ a0 + a1 * beta_m + a2 * beta_s
+    X = np.vstack([np.ones_like(beta_m), beta_m, beta_s]).T
+    coef, *_ = np.linalg.lstsq(X, alpha, rcond=None)
+    a0, a1, a2 = coef
+
+    bm_lin = np.linspace(beta_m.min(), beta_m.max(), 20)
+    bs_lin = np.linspace(beta_s.min(), beta_s.max(), 20)
+    BM, BS = np.meshgrid(bm_lin, bs_lin)
+    A_plane = a0 + a1 * BM + a2 * BS
+
+    ax.plot_surface(
+        BM,
+        BS,
+        A_plane,
+        alpha=0.2,
+        linewidth=0,
+        antialiased=True,
+    )
 
     fig.tight_layout()
     fig.savefig(out_path)
