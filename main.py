@@ -16,6 +16,8 @@ from src.plots import (
 
 def main() -> None:
     base_dir = Path(__file__).resolve().parent
+
+    # paths
     data_path = base_dir / "dataset" / "hermes_synthetic_data_0.2.0.csv"
     results_dir = base_dir / "results"
     plots_dir = results_dir / "plots_bivariate"
