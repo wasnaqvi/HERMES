@@ -232,9 +232,9 @@ def _fit_met_survey(
     x_m_c = x_m - xm_mean
     x_s_c_obs = x_s_obs - xs_mean
 
-    span_xm = float(np.ptp(x_m_c) or 1.0)
-    span_xs = float(np.ptp(x_s_c_obs) or 1.0)
-    span_yp = float(np.ptp(yp) or 1.0)
+    span_xm = float(np.ptp(x_m_c))
+    span_xs = float(np.ptp(x_s_c_obs))
+    span_yp = float(np.ptp(yp))
 
     # --------- PyMC model ----------
     with pm.Model() as model:

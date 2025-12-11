@@ -1039,3 +1039,57 @@ def make_met_global_slope_3d_from_df(
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
+
+
+def plot_mass_histogram_nested_classes(
+    sampler: SurveySampler,
+    bins: int = 30,
+):
+    """
+    Plot a single overlaid histogram of logM for S1–S4.
+
+    Colours:
+      S1: blue
+      S2: orange
+      S3: green
+      S4: red
+    """
+    mass_classes = sampler.mass_classes
+    subset_order = ["S1", "S2", "S3", "S4"]
+    colors = {
+        "S1": "blue",
+        "S2": "orange",
+        "S3": "green",
+        "S4": "red",
+    }
+
+    # collect data arrays
+    data_arrays = [
+        mass_classes[label]["logM"].to_numpy(float)
+        for label in subset_order
+    ]
+
+    # common bins across all subsets
+    xmin = min(np.min(arr) for arr in data_arrays)
+    xmax = max(np.max(arr) for arr in data_arrays)
+    bin_edges = np.linspace(xmin, xmax, bins)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    for label, arr in zip(subset_order, data_arrays):
+        ax.hist(
+            arr,
+            bins=bin_edges,
+            density=True,
+            alpha=0.5,
+            label=f"{label} (n={len(arr)})",
+            color=colors[label],
+        )
+
+    ax.set_xlabel("logM")
+    ax.set_ylabel("Density")
+    ax.set_title("Mass Distribution by Nested Survey Class")
+    ax.legend()
+    fig.tight_layout()
+
+    return fig, ax

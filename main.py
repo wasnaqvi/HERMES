@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import pandas as pd
+import matplotlib.pyplot as plt
 from src.data import HermesData
 from src.Survey import SurveySampler
 from src.Model import MetModel
@@ -11,6 +12,7 @@ from src.plots import (
     make_met_fixedN_uncertainty_vs_L_from_df,
     make_met_fixedN_covariance_vs_L_from_df,
     make_met_global_slope_3d_from_df,
+    plot_mass_histogram_nested_classes
 )
 
 
@@ -26,9 +28,11 @@ def main() -> None:
     hermes = HermesData.from_csv(str(data_path))
 
     # 2) build surveys (same design as before)
-    # sampler = SurveySampler(hermes, rng_seed=42)
+    sampler = SurveySampler(hermes, rng_seed=42)
+
     # N_grid = [30, 40, 50, 90, 100]
     # surveys = sampler.sample_grid(N_grid, n_reps_per_combo=10)
+    
     # make_design_space_N_with_L_contours(
     #     surveys,
     #     out_path=plots_dir / "hermes_met_design_space_N_Lcontours.pdf",
@@ -40,25 +44,25 @@ def main() -> None:
     # met_fit_df.to_csv(met_csv_path, index=False)
     # print("Wrote metallicity survey summaries to:", met_csv_path)
     
-    met_fit_df = pd.read_csv(results_dir / "hermes_met_bivariate.csv")
+    # met_fit_df = pd.read_csv(results_dir / "hermes_met_bivariate.csv")
     # 4) Visualizations: fixed-N leverage panels + 3D slope view
-    make_met_fixedN_uncertainty_vs_L_from_df(
-        met_fit_df,
-        out_dir=plots_dir,
-        L_col="L_logM",
-    )
+    # make_met_fixedN_uncertainty_vs_L_from_df(
+    #     met_fit_df,
+    #     out_dir=plots_dir,
+    #     L_col="L_logM",
+    # )
 
-    make_met_fixedN_covariance_vs_L_from_df(
-        met_fit_df,
-        out_dir=plots_dir,
-        L_col="L_logM",
-    )
+    # make_met_fixedN_covariance_vs_L_from_df(
+    #     met_fit_df,
+    #     out_dir=plots_dir,
+    #     L_col="L_logM",
+    # )
 
-    make_met_global_slope_3d_from_df(
-        met_fit_df,
-        out_path=plots_dir / "met_slope_plane.pdf",
-        L_col="L_logM",
-    )
+    # make_met_global_slope_3d_from_df(
+    #     met_fit_df,
+    #     out_path=plots_dir / "met_slope_plane.pdf",
+    #     L_col="L_logM",
+    # )
 
 
 if __name__ == "__main__":
