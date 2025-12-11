@@ -135,8 +135,8 @@ For each planet $i$ in a survey we now have:
   $(\sigma_{i,\mathrm{low}}^{p}, \sigma_{i,\mathrm{high}}^{p})$ and
   $(\sigma_{i,\mathrm{low}}^{s}, \sigma_{i,\mathrm{high}}^{s})$.
 
-We again define effective measurement scatters
-$$
+Just in case, I have asymmetric errors in the future, I have added my work.
+$
 \sigma^{p}_{i,\mathrm{meas}} = \tfrac12\left(
   \lvert \sigma^{p}_{i,\mathrm{low}} \rvert +
   \lvert \sigma^{p}_{i,\mathrm{high}} \rvert
@@ -145,11 +145,11 @@ $$
   \lvert \sigma^{s}_{i,\mathrm{low}} \rvert +
   \lvert \sigma^{s}_{i,\mathrm{high}} \rvert
 \right),
-$$
+$
 and centered predictor
-$$
+$
 x_i^{\mathrm{c}} = x_i - \bar x.
-$$
+$
 
 ### 3.1 Regression planes
 

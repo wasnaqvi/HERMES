@@ -152,14 +152,6 @@ class Model:
             rows.append(self.summarize_single(survey, idata))
         return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
 
-import pymc as pm
-import numpy as np
-import arviz as az
-import pandas as pd
-from typing import List
-from .Survey import Survey  # already there above
-
-
 def _fit_met_survey(
     x_mass,
     x_star,
@@ -266,18 +258,19 @@ def _fit_met_survey(
             mu=0.0,
             sigma=span_yp / span_xm,
         )
+        # Fix this. sigma should be span_ys/ xm??
         beta_s = pm.Normal(
             "beta_s",
             mu=0.0,
             sigma=span_yp / span_xs,
         )
 
-        # intrinsic scatter on the regression
+        # intrinsic scatter on the regression. Why am I adding 1e-3 here?
         epsilon = pm.HalfNormal(
             "epsilon",
             sigma=float(yp.std() + 1e-3),
         )
-        # expose as "sigma_p" for summaries/plots
+        # expose as "sigma_p" for summaries/plots. pm.deterministic? here???
         sigma_p = pm.Deterministic("sigma_p", epsilon)
 
         # mean relation

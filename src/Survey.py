@@ -39,6 +39,13 @@ class Survey:
         Default: leverage of logM.
         """
         return compute_leverage(self.df[col].to_numpy(float))
+    
+    def leverage_2D(self,col_x: str = "logM", col_y: str = "Star Metallicity") -> float:
+        '''
+        2D Leverage of the specified columns. 
+        Redefine Leverage as a quadrature sum of the two 1D leverages or some Euclidean distance metric.
+        '''
+        return np.sqrt(self.leverage(col_x)**2 + self.leverage(col_y)**2)
 
 
 class SurveySampler:
@@ -103,5 +110,5 @@ class SurveySampler:
         return surveys
 
 
-# Backwards-compatible alias if you ever used SurveyFactory
+# I have no idea why this line is still here.
 SurveyFactory = SurveySampler
