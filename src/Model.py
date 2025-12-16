@@ -1,134 +1,224 @@
 # src/Model.py
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
-import pymc as pm
+
 import arviz as az
-from typing import List
+import jax
+import jax.numpy as jnp
+import numpyro
+import numpyro.distributions as dist
+from numpyro.infer import MCMC, NUTS
+from numpyro.infer.util import log_likelihood
 
 from .Survey import Survey  # relative import
 
 
-def _fit_leverage_survey(
-    x,
-    y_obs,
-    y_err_low,
-    y_err_high,
+Array1D = npt.NDArray[np.floating]
+
+
+def _as_1d_float(x: npt.ArrayLike) -> Array1D:
+    a = np.asarray(x, dtype=float).ravel()
+    return a
+
+
+def _finite_mask(*arrays: Array1D) -> npt.NDArray[np.bool_]:
+    m = np.ones(arrays[0].shape, dtype=bool)
+    for a in arrays:
+        m &= np.isfinite(a)
+    return m
+
+
+def _safe_ptp(x: Array1D, fallback: float = 1.0) -> float:
+    span = float(np.ptp(x))
+    return span if np.isfinite(span) and span > 0.0 else float(fallback)
+
+
+def _safe_sd(x: Array1D, fallback: float = 1.0) -> float:
+    if x.size <= 1:
+        return float(fallback)
+    sd = float(np.std(x, ddof=1))
+    return sd if np.isfinite(sd) and sd > 0.0 else float(fallback)
+
+
+def _run_nuts(
+    model_fn,
+    rng_key: jax.Array,
+    *,
+    draws: int,
+    tune: int,
+    target_accept: float,
+    num_chains: int,
+    model_kwargs: Mapping[str, Any],
+) -> Tuple[MCMC, Dict[str, jax.Array]]:
+    """
+    Runs NUTS and returns (mcmc, log_lik_dict).
+    log_lik_dict is suitable for az.from_numpyro(..., log_likelihood=...).
+    """
+    kernel = NUTS(model_fn, target_accept_prob=float(target_accept))
+    mcmc = MCMC(
+        kernel,
+        num_warmup=int(tune),
+        num_samples=int(draws),
+        num_chains=int(num_chains),
+        progress_bar=False,
+    )
+    mcmc.run(rng_key, **model_kwargs)
+
+    # group_by_chain=True yields shape (chains, draws, ...) which ArviZ likes
+    posterior = mcmc.get_samples(group_by_chain=True)
+    ll = log_likelihood(model_fn, posterior, **model_kwargs)
+
+    return mcmc, ll
+
+
+# ----------------------------
+# 1) Linear + intrinsic scatter
+# ----------------------------
+def _linear_scatter_model(
+    *,
+    x_c: jax.Array,          # (n,)
+    meas_sigma: jax.Array,   # (n,)
+    y_obs: Optional[jax.Array] = None,  # (n,)
+    alpha_mu: float,
+    alpha_sigma: float,
+    beta_sigma: float,
+    epsilon_sigma: float,
+) -> None:
+    alpha = numpyro.sample("alpha", dist.Normal(alpha_mu, alpha_sigma))
+    beta = numpyro.sample("beta", dist.Normal(0.0, beta_sigma))
+    epsilon = numpyro.sample("epsilon", dist.HalfNormal(epsilon_sigma))
+
+    mu = alpha + beta * x_c
+    obs_sigma = jnp.sqrt(meas_sigma**2 + epsilon**2)
+
+    numpyro.sample("y", dist.Normal(mu, obs_sigma), obs=y_obs)
+
+
+def _fit_leverage_survey_numpyro(
+    x: npt.ArrayLike,
+    y_obs: npt.ArrayLike,
+    y_err_low: npt.ArrayLike,
+    y_err_high: npt.ArrayLike,
+    *,
     draws: int = 2000,
     tune: int = 1000,
     target_accept: float = 0.9,
     random_seed: int = 14,
+    num_chains: int = 1,
 ) -> az.InferenceData:
-    """
-    Linear + intrinsic scatter model:
-        y ~ Normal(alpha + beta * (x - mean(x)), sqrt(meas_sigma^2 + epsilon^2))
-    """
+    x_np = _as_1d_float(x)
+    y_np = _as_1d_float(y_obs)
+    el_np = _as_1d_float(y_err_low)
+    eh_np = _as_1d_float(y_err_high)
 
-    x = np.asarray(x, dtype=float).ravel()
-    y_obs = np.asarray(y_obs, dtype=float).ravel()
-    y_err_low = np.asarray(y_err_low, dtype=float).ravel()
-    y_err_high = np.asarray(y_err_high, dtype=float).ravel()
-
-    mask = (
-        np.isfinite(x)
-        & np.isfinite(y_obs)
-        & np.isfinite(y_err_low)
-        & np.isfinite(y_err_high)
-    )
-    if mask.sum() == 0:
+    m = _finite_mask(x_np, y_np, el_np, eh_np)
+    if int(m.sum()) == 0:
         raise ValueError("No finite rows after filtering.")
-    x, y_obs, y_err_low, y_err_high = (
-        x[mask],
-        y_obs[mask],
-        y_err_low[mask],
-        y_err_high[mask],
+
+    x_np, y_np, el_np, eh_np = x_np[m], y_np[m], el_np[m], eh_np[m]
+
+    meas_sigma_np = 0.5 * (np.abs(el_np) + np.abs(eh_np))
+    meas_sigma_np = np.clip(meas_sigma_np, 1e-6, None)
+
+    x_mean = float(x_np.mean())
+    x_c_np = x_np - x_mean
+
+    span_x = _safe_ptp(x_c_np, fallback=1.0)
+    span_y = _safe_ptp(y_np, fallback=1.0)
+    y_sd = _safe_sd(y_np, fallback=1.0)
+
+    alpha_mu = float(y_np.mean())
+    alpha_sigma = max(float(y_sd / np.sqrt(y_np.size)), 1e-3)
+    beta_sigma = max(float(span_y / span_x), 1e-3)
+    epsilon_sigma = max(float(y_sd), 1e-3)
+
+    model_kwargs = dict(
+        x_c=jnp.asarray(x_c_np),
+        meas_sigma=jnp.asarray(meas_sigma_np),
+        y_obs=jnp.asarray(y_np),
+        alpha_mu=alpha_mu,
+        alpha_sigma=alpha_sigma,
+        beta_sigma=beta_sigma,
+        epsilon_sigma=epsilon_sigma,
     )
 
-    meas_sigma = 0.5 * (np.abs(y_err_low) + np.abs(y_err_high))
-    meas_sigma = np.clip(meas_sigma, 1e-6, None)
+    rng_key = jax.random.PRNGKey(int(random_seed))
+    mcmc, ll = _run_nuts(
+        _linear_scatter_model,
+        rng_key,
+        draws=draws,
+        tune=tune,
+        target_accept=target_accept,
+        num_chains=num_chains,
+        model_kwargs=model_kwargs,
+    )
 
-    x_mean = float(x.mean())
-    x_c = x - x_mean
-
-    span_x = float(np.ptp(x_c) or 1.0)
-    span_y = float(np.ptp(y_obs) or 1.0)
-
-    with pm.Model() as model:
-        x_c_data = pm.Data("x_c", x_c)
-        meas_sigma_data = pm.Data("meas_sigma", meas_sigma)
-
-        alpha = pm.Normal(
-            "alpha",
-            mu=float(y_obs.mean()),
-            sigma=max(float(y_obs.std() / np.sqrt(len(y_obs))), 1e-3),
-        )
-        beta = pm.Normal(
-            "beta",
-            mu=0.0,
-            sigma=span_y / span_x,
-        )
-        epsilon = pm.HalfNormal(
-            "epsilon",
-            sigma=max(float(y_obs.std()), 1e-3),
-        )
-
-        mu = alpha + beta * x_c_data
-        obs_sigma = pm.math.sqrt(meas_sigma_data**2 + epsilon**2)
-
-        pm.Normal("y", mu=mu, sigma=obs_sigma, observed=y_obs)
-
-        idata = pm.sample(
-            draws=draws,
-            tune=tune,
-            target_accept=target_accept,
-            random_seed=random_seed,
-            return_inferencedata=True,
-            progressbar=False,
-            idata_kwargs={"log_likelihood": True},
-        )
-
+    idata = az.from_numpyro(mcmc, log_likelihood=ll)
     return idata
+
+
+@dataclass(frozen=True, slots=True)
+class ModelConfig:
+    draws: int = 2000
+    tune: int = 1000
+    target_accept: float = 0.9
+    num_chains: int = 1
+
 
 class Model:
     """
-    Wraps the PyMC linear+intrinsic-scatter model
-    and runs it on a list of Survey objects.
+    NumPyro/JAX version of the linear + intrinsic scatter model,
+    run on Survey objects.
     """
 
-    def __init__(self, draws: int = 2000, tune: int = 1000, target_accept: float = 0.9):
-        self.draws = draws
-        self.tune = tune
-        self.target_accept = target_accept
+    def __init__(
+        self,
+        draws: int = 2000,
+        tune: int = 1000,
+        target_accept: float = 0.9,
+        num_chains: int = 1,
+    ) -> None:
+        self.cfg = ModelConfig(
+            draws=int(draws),
+            tune=int(tune),
+            target_accept=float(target_accept),
+            num_chains=int(num_chains),
+        )
 
     def fit_survey(self, survey: Survey, random_seed: int = 14) -> az.InferenceData:
         df = survey.df
-        return _fit_leverage_survey(
-            df["logM"].values,
-            df["log(X_H2O)"].values,
-            df["uncertainty_lower"].values,
-            df["uncertainty_upper"].values,
-            draws=self.draws,
-            tune=self.tune,
-            target_accept=self.target_accept,
-            random_seed=random_seed,
+        return _fit_leverage_survey_numpyro(
+            df["logM"].to_numpy(),
+            df["log(X_H2O)"].to_numpy(),
+            df["uncertainty_lower"].to_numpy(),
+            df["uncertainty_upper"].to_numpy(),
+            draws=self.cfg.draws,
+            tune=self.cfg.tune,
+            target_accept=self.cfg.target_accept,
+            random_seed=int(random_seed),
+            num_chains=self.cfg.num_chains,
         )
 
-    def summarize_single(self, survey: Survey, idata: az.InferenceData) -> dict:
+    def summarize_single(self, survey: Survey, idata: az.InferenceData) -> Dict[str, float]:
         summ = az.summary(
             idata,
             var_names=["alpha", "beta", "epsilon"],
             hdi_prob=0.68,
             round_to=None,
-        )
-        # rename epsilon -> sigma in the summary dict
-        summ = summ.rename(index={"epsilon": "sigma"})
+        ).rename(index={"epsilon": "sigma"})
 
         return {
-            "survey_id": survey.survey_id,
-            "class_label": survey.class_label,
-            "N": survey.n,
-            "L_met": survey.leverage(col="log(X_H2O)"),
-            "L_logM": survey.leverage(col="logM"),
+            "survey_id": float(survey.survey_id),
+            "class_label": float(survey.class_label) if isinstance(survey.class_label, (int, float, np.number)) else survey.class_label,  # type: ignore[assignment]
+            "N": float(survey.n),
+            "L_met": float(survey.leverage(col="log(X_H2O)")),
+            "L_logM": float(survey.leverage(col="logM")),
             "alpha_mean": float(summ.loc["alpha", "mean"]),
             "alpha_sd": float(summ.loc["alpha", "sd"]),
             "alpha_hdi16": float(summ.loc["alpha", "hdi_16%"]),
@@ -143,67 +233,74 @@ class Model:
             "sigma_hdi84": float(summ.loc["sigma", "hdi_84%"]),
         }
 
-    def run_on_surveys(self, surveys: List[Survey], seed: int = 123) -> pd.DataFrame:
-        rng = np.random.default_rng(seed)
-        rows = []
+    def run_on_surveys(self, surveys: Sequence[Survey], seed: int = 123) -> pd.DataFrame:
+        rng = np.random.default_rng(int(seed))
+        rows: List[Dict[str, Any]] = []
         for survey in surveys:
             rs = int(rng.integers(0, 2**32 - 1))
             idata = self.fit_survey(survey, random_seed=rs)
             rows.append(self.summarize_single(survey, idata))
         return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
 
-def _fit_met_survey(
-    x_mass,
-    x_star,
-    y_planet,
-    y_planet_err_low,
-    y_planet_err_high,
-    x_star_err_low,
-    x_star_err_high,
+
+# -----------------------------------------
+# 2) Metallicty model: y on logM and [Fe/H]
+# -----------------------------------------
+def _met_model(
+    *,
+    x_m_c: jax.Array,           # (n,)
+    x_s_obs: jax.Array,         # (n,)
+    sig_meas_p: jax.Array,      # (n,)
+    sig_meas_s: jax.Array,      # (n,)
+    y_planet: Optional[jax.Array] = None,  # (n,)
+    alpha_mu: float,
+    alpha_sigma: float,
+    beta_m_sigma: float,
+    beta_s_sigma: float,
+    epsilon_sigma: float,
+) -> None:
+    # latent true stellar metallicity (measurement model)
+    x_s_true = numpyro.sample("x_s_true", dist.Normal(x_s_obs, sig_meas_s))
+    x_s_true_c = x_s_true - jnp.mean(x_s_true)
+
+    alpha = numpyro.sample("alpha", dist.Normal(alpha_mu, alpha_sigma))
+    beta_m = numpyro.sample("beta_m", dist.Normal(0.0, beta_m_sigma))
+    beta_s = numpyro.sample("beta_s", dist.Normal(0.0, beta_s_sigma))
+
+    epsilon = numpyro.sample("epsilon", dist.HalfNormal(epsilon_sigma))
+    numpyro.deterministic("sigma_p", epsilon)
+
+    mu = alpha + beta_m * x_m_c + beta_s * x_s_true_c
+    obs_sigma = jnp.sqrt(sig_meas_p**2 + epsilon**2)
+
+    numpyro.sample("y_planet", dist.Normal(mu, obs_sigma), obs=y_planet)
+
+
+def _fit_met_survey_numpyro(
+    x_mass: npt.ArrayLike,
+    x_star: npt.ArrayLike,
+    y_planet: npt.ArrayLike,
+    y_planet_err_low: npt.ArrayLike,
+    y_planet_err_high: npt.ArrayLike,
+    x_star_err_low: npt.ArrayLike,
+    x_star_err_high: npt.ArrayLike,
+    *,
     draws: int = 2000,
     tune: int = 1000,
     target_accept: float = 0.9,
     random_seed: int = 14,
+    num_chains: int = 1,
 ) -> az.InferenceData:
-    """
-    Bi-variate regression with 2 inputs and one output.
+    x_m = _as_1d_float(x_mass)
+    x_s_obs = _as_1d_float(x_star)
+    yp = _as_1d_float(y_planet)
 
-      x_m = logM (planet mass)
-      x_s = stellar metallicity [Fe/H]
-      y_p = planetary metallicity log(X_H2O)
+    el_p = _as_1d_float(y_planet_err_low)
+    eh_p = _as_1d_float(y_planet_err_high)
+    el_s = _as_1d_float(x_star_err_low)
+    eh_s = _as_1d_float(x_star_err_high)
 
-    Model:
-
-        y_p ~ Normal(
-            alpha
-            + beta_m * (x_m - mean_xm)
-            + beta_s * (x_s_true - mean_xs),
-            sqrt(sigma_meas_p^2 + epsilon^2)
-        )
-
-    where x_s_true is a latent "true" stellar metallicity with
-    measurement error:
-
-        x_s_obs ~ Normal(x_s_true, sigma_meas_s)
-
-    and epsilon is the intrinsic scatter of the regression.
-    """
-
-    # --------- arrays and masking ----------
-    x_m = np.asarray(x_mass, float).ravel()
-    x_s_obs = np.asarray(x_star, float).ravel()
-    yp = np.asarray(y_planet, float).ravel()
-
-    el_p = np.asarray(y_planet_err_low, float).ravel()
-    eh_p = np.asarray(y_planet_err_high, float).ravel()
-    el_s = np.asarray(x_star_err_low, float).ravel()
-    eh_s = np.asarray(x_star_err_high, float).ravel()
-
-    m = (
-        np.isfinite(x_m) & np.isfinite(x_s_obs) & np.isfinite(yp)
-        & np.isfinite(el_p) & np.isfinite(eh_p)
-        & np.isfinite(el_s) & np.isfinite(eh_s)
-    )
+    m = _finite_mask(x_m, x_s_obs, yp, el_p, eh_p, el_s, eh_s)
     x_m, x_s_obs, yp, el_p, eh_p, el_s, eh_s = (
         x_m[m], x_s_obs[m], yp[m], el_p[m], eh_p[m], el_s[m], eh_s[m]
     )
@@ -211,124 +308,101 @@ def _fit_met_survey(
     if x_m.size == 0:
         raise ValueError("No finite rows for metallicity model in this survey.")
 
-    # --------- effective measurement sigmas ----------
-    sig_meas_p = 0.5 * (np.abs(el_p) + np.abs(eh_p))
-    sig_meas_s = 0.5 * (np.abs(el_s) + np.abs(eh_s))
-    sig_meas_p = np.clip(sig_meas_p, 1e-6, None)
-    sig_meas_s = np.clip(sig_meas_s, 1e-6, None)
+    sig_meas_p_np = 0.5 * (np.abs(el_p) + np.abs(eh_p))
+    sig_meas_s_np = 0.5 * (np.abs(el_s) + np.abs(eh_s))
+    sig_meas_p_np = np.clip(sig_meas_p_np, 1e-6, None)
+    sig_meas_s_np = np.clip(sig_meas_s_np, 1e-6, None)
 
-    # --------- centering & spans ----------
     xm_mean = float(x_m.mean())
     xs_mean = float(x_s_obs.mean())
 
-    x_m_c = x_m - xm_mean
-    x_s_c_obs = x_s_obs - xs_mean
+    x_m_c_np = x_m - xm_mean
+    x_s_c_obs_np = x_s_obs - xs_mean  # only for prior scaling
 
-    span_xm = float(np.ptp(x_m_c))
-    span_xs = float(np.ptp(x_s_c_obs))
-    span_yp = float(np.ptp(yp))
+    span_xm = _safe_ptp(x_m_c_np, fallback=1.0)
+    span_xs = _safe_ptp(x_s_c_obs_np, fallback=1.0)
+    span_yp = _safe_ptp(yp, fallback=1.0)
+    yp_sd = _safe_sd(yp, fallback=1.0)
 
-    # --------- PyMC model ----------
-    with pm.Model() as model:
-        # data containers
-        x_m_c_data   = pm.Data("x_m_c", x_m_c)
-        x_s_obs_data = pm.Data("x_s_obs", x_s_obs)
-        sig_p_data   = pm.Data("sig_meas_p", sig_meas_p)
-        sig_s_data   = pm.Data("sig_meas_s", sig_meas_s)
+    alpha_mu = float(yp.mean())
+    alpha_sigma = max(float(yp_sd / np.sqrt(yp.size)), 1e-3)
 
-        # latent true stellar metallicity, with measurement error
-        x_s_true = pm.Normal(
-            "x_s_true",
-            mu=x_s_obs_data,
-            sigma=sig_s_data,
-            shape=x_m.size,
-        )
+    # scales should map predictor spans to response span (unit-consistent)
+    beta_m_sigma = max(float(span_yp / span_xm), 1e-3)
+    beta_s_sigma = max(float(span_yp / span_xs), 1e-3)
 
-        # center the latent stellar metallicity
-        x_s_true_c = x_s_true - pm.math.mean(x_s_true)
+    epsilon_sigma = max(float(yp_sd), 1e-3)
 
-        # regression coefficients
-        alpha = pm.Normal(
-            "alpha",
-            mu=float(yp.mean()),
-            sigma=float(yp.std() / np.sqrt(len(yp)) + 1e-3),
-        )
-        beta_m = pm.Normal(
-            "beta_m",
-            mu=0.0,
-            sigma=span_yp / span_xm,
-        )
-        # Fix this. sigma should be span_ys/ xm??
-        beta_s = pm.Normal(
-            "beta_s",
-            mu=0.0,
-            sigma=span_yp / span_xs,
-        )
+    model_kwargs = dict(
+        x_m_c=jnp.asarray(x_m_c_np),
+        x_s_obs=jnp.asarray(x_s_obs),
+        sig_meas_p=jnp.asarray(sig_meas_p_np),
+        sig_meas_s=jnp.asarray(sig_meas_s_np),
+        y_planet=jnp.asarray(yp),
+        alpha_mu=alpha_mu,
+        alpha_sigma=alpha_sigma,
+        beta_m_sigma=beta_m_sigma,
+        beta_s_sigma=beta_s_sigma,
+        epsilon_sigma=epsilon_sigma,
+    )
 
-        # intrinsic scatter on the regression. Why am I adding 1e-3 here?
-        epsilon = pm.HalfNormal(
-            "epsilon",
-            sigma=float(yp.std() + 1e-3),
-        )
-        # expose as "sigma_p" for summaries/plots. pm.deterministic? here???
-        sigma_p = pm.Deterministic("sigma_p", epsilon)
+    rng_key = jax.random.PRNGKey(int(random_seed))
+    mcmc, ll = _run_nuts(
+        _met_model,
+        rng_key,
+        draws=draws,
+        tune=tune,
+        target_accept=target_accept,
+        num_chains=num_chains,
+        model_kwargs=model_kwargs,
+    )
 
-        # mean relation
-        mu = alpha + beta_m * x_m_c_data + beta_s * x_s_true_c
-
-        # total scatter: measurement + intrinsic
-        obs_sigma = pm.math.sqrt(sig_p_data**2 + epsilon**2)
-
-        pm.Normal("y_planet", mu=mu, sigma=obs_sigma, observed=yp)
-
-        idata = pm.sample(
-            draws=draws,
-            tune=tune,
-            target_accept=target_accept,
-            random_seed=random_seed,
-            return_inferencedata=True,
-            progressbar=False,
-            idata_kwargs={"log_likelihood": True},
-        )
-
+    idata = az.from_numpyro(mcmc, log_likelihood=ll)
     return idata
+
+
 class MetModel:
     """
-    Bi-variate regression of planetary metallicity on:
-      - logM (planet mass)
-      - stellar metallicity [Fe/H]
-
-    With:
-      - heteroskedastic measurement error on y_p and x_s,
-      - intrinsic scatter epsilon (exposed as sigma_p).
+    NumPyro/JAX version of:
+      y_p = log(X_H2O) ~ alpha + beta_m*(logM-centered) + beta_s*(Fe/H_true-centered)
+    with:
+      - heteroskedastic measurement error on y_p and Fe/H,
+      - latent Fe/H_true per planet,
+      - intrinsic scatter epsilon exposed as sigma_p.
     """
 
-    def __init__(self, draws: int = 2000, tune: int = 1000, target_accept: float = 0.9):
-        self.draws = draws
-        self.tune = tune
-        self.target_accept = target_accept
+    def __init__(
+        self,
+        draws: int = 2000,
+        tune: int = 1000,
+        target_accept: float = 0.9,
+        num_chains: int = 1,
+    ) -> None:
+        self.cfg = ModelConfig(
+            draws=int(draws),
+            tune=int(tune),
+            target_accept=float(target_accept),
+            num_chains=int(num_chains),
+        )
 
     def fit_survey(self, survey: Survey, random_seed: int = 14) -> az.InferenceData:
         df = survey.df
-        return _fit_met_survey(
-            df["logM"].values,
-            df["Star Metallicity"].values,
-            df["log(X_H2O)"].values,
-            df["uncertainty_lower"].values,
-            df["uncertainty_upper"].values,
-            df["Star Metallicity Error Lower"].values,
-            df["Star Metallicity Error Upper"].values,
-            draws=self.draws,
-            tune=self.tune,
-            target_accept=self.target_accept,
-            random_seed=random_seed,
+        return _fit_met_survey_numpyro(
+            df["logM"].to_numpy(),
+            df["Star Metallicity"].to_numpy(),
+            df["log(X_H2O)"].to_numpy(),
+            df["uncertainty_lower"].to_numpy(),
+            df["uncertainty_upper"].to_numpy(),
+            df["Star Metallicity Error Lower"].to_numpy(),
+            df["Star Metallicity Error Upper"].to_numpy(),
+            draws=self.cfg.draws,
+            tune=self.cfg.tune,
+            target_accept=self.cfg.target_accept,
+            random_seed=int(random_seed),
+            num_chains=self.cfg.num_chains,
         )
 
-    def summarize_single(self, survey: Survey, idata: az.InferenceData) -> dict:
-        """
-        Extract posterior means, SDs, and 68% HDIs for:
-          alpha, beta_m, beta_s, sigma_p
-        """
+    def summarize_single(self, survey: Survey, idata: az.InferenceData) -> Dict[str, float]:
         summ = az.summary(
             idata,
             var_names=["alpha", "beta_m", "beta_s", "sigma_p"],
@@ -336,7 +410,7 @@ class MetModel:
             round_to=None,
         )
 
-        row = {
+        row: Dict[str, Any] = {
             "survey_id": survey.survey_id,
             "class_label": survey.class_label,
             "N": survey.n,
@@ -344,22 +418,23 @@ class MetModel:
             "L_logM": survey.leverage(col="logM"),
         }
 
-        def add_param(prefix, name):
-            row[f"{prefix}_mean"]   = float(summ.loc[name, "mean"])
-            row[f"{prefix}_sd"]     = float(summ.loc[name, "sd"])
-            row[f"{prefix}_hdi16"]  = float(summ.loc[name, "hdi_16%"])
-            row[f"{prefix}_hdi84"]  = float(summ.loc[name, "hdi_84%"])
+        def add_param(prefix: str, name: str) -> None:
+            row[f"{prefix}_mean"] = float(summ.loc[name, "mean"])
+            row[f"{prefix}_sd"] = float(summ.loc[name, "sd"])
+            row[f"{prefix}_hdi16"] = float(summ.loc[name, "hdi_16%"])
+            row[f"{prefix}_hdi84"] = float(summ.loc[name, "hdi_84%"])
 
-        add_param("alpha",   "alpha")
-        add_param("beta_m",  "beta_m")
-        add_param("beta_s",  "beta_s")
+        add_param("alpha", "alpha")
+        add_param("beta_m", "beta_m")
+        add_param("beta_s", "beta_s")
         add_param("sigma_p", "sigma_p")
 
-        return row
+        # keep return type consistent (float values where applicable)
+        return {k: float(v) if isinstance(v, (int, float, np.number)) else v for k, v in row.items()}  # type: ignore[return-value]
 
-    def run_on_surveys(self, surveys: List[Survey], seed: int = 321) -> pd.DataFrame:
-        rng = np.random.default_rng(seed)
-        rows = []
+    def run_on_surveys(self, surveys: Sequence[Survey], seed: int = 321) -> pd.DataFrame:
+        rng = np.random.default_rng(int(seed))
+        rows: List[Dict[str, Any]] = []
         for survey in surveys:
             rs = int(rng.integers(0, 2**32 - 1))
             idata = self.fit_survey(survey, random_seed=rs)
