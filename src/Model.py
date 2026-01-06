@@ -53,7 +53,7 @@ def _safe_sd(x: Array1D, fallback: float = 1.0) -> float:
 
 def _et68(x: np.ndarray) -> Tuple[float, float]:
     """
-    Equal-tailed 68% interval (fast). (Not HDI.)
+    Equal-tailed 68% interval (fast). (Not HDI!!)
     """
     lo, hi = np.quantile(x, [0.16, 0.84])
     return float(lo), float(hi)
@@ -192,9 +192,8 @@ def _fit_leverage_survey_numpyro(
     return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
 
-# -----------------------------------------
 # 2) Metallicty model: y on logM and [Fe/H]
-# -----------------------------------------
+# Getting a fix on this bad boy.
 def _met_model(
     *,
     x_m_c: jax.Array,               # (N,)
