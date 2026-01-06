@@ -196,37 +196,46 @@ def _fit_leverage_survey_numpyro(
 # Getting a fix on this bad boy.
 def _met_model(
     *,
-    x_m_c: jax.Array,               # (N,)
-    x_s_obs: jax.Array,             # (N,)
-    sig_meas_p: jax.Array,          # (N,)
-    sig_meas_s: jax.Array,          # (N,)
-    y_planet: Optional[jax.Array],  # (N,)
-    alpha_mu: float,
-    alpha_sigma: float,
-    beta_m_sigma: float,
+    x_m_c: jax.Array,               # (N,) mass centered: (m - mean_mass)
+    x_s_obs: jax.Array,             # (N,) observed stellar metallicity
+    sig_meas_p: jax.Array,          # (N,) planetary metallicity measurement sigma
+    sig_meas_s: jax.Array,          # (N,) stellar metallicity measurement sigma
+    y_planet: Optional[jax.Array],  # (N,) planetary metallicity (e.g., log_x_h2o proxy)
+    alpha_p_mu: float,
+    alpha_p_sigma: float,
+    beta_p_sigma: float,
     beta_s_sigma: float,
-    epsilon_sigma: float,
+    epsilon_p_sigma: float,
 ) -> None:
-    # latent true stellar metallicity; batching-safe
+    # latent true stellar metallicity
     x_s_true = numpyro.sample("x_s_true", dist.Normal(x_s_obs, sig_meas_s))
+
+    # center stellar metallicity (using latent mean; batching-safe)
     x_s_true_c = x_s_true - jnp.mean(x_s_true, axis=-1, keepdims=True)
 
-    alpha = numpyro.sample("alpha", dist.Normal(alpha_mu, alpha_sigma))
-    beta_m = numpyro.sample("beta_m", dist.Normal(0.0, beta_m_sigma))
-    beta_s = numpyro.sample("beta_s", dist.Normal(0.0, beta_s_sigma))
+    # priors
+    alpha_p = numpyro.sample("alpha_p", dist.Normal(alpha_p_mu, alpha_p_sigma))
+    beta_p  = numpyro.sample("beta_p",  dist.Normal(0.0, beta_p_sigma))
+    beta_s  = numpyro.sample("beta_s",  dist.Normal(0.0, beta_s_sigma))
 
-    epsilon = numpyro.sample("epsilon", dist.HalfNormal(epsilon_sigma))
-    numpyro.deterministic("sigma_p", epsilon)
+    epsilon_p = numpyro.sample("epsilon", dist.HalfNormal(epsilon_p_sigma))
+    numpyro.deterministic("sigma_p", epsilon_p)
 
-    alpha_b = alpha[..., None]
-    beta_m_b = beta_m[..., None]
+    # broadcast scalars across N
+    alpha_b = alpha_p[..., None]
+    beta_p_b = beta_p[..., None]
+    # maybe may beta_s_b just an array of ones. 
+   #beta_s_b=  jnp.ones_like(beta_s)  # for testing no stellar metallicity dependence
     beta_s_b = beta_s[..., None]
-    eps_b = epsilon[..., None]
+    eps_b = epsilon_p[..., None]
 
-    mu = alpha_b + beta_m_b * x_m_c + beta_s_b * x_s_true_c
+    # THE science equation 
+    mu_planetary_metallicity = alpha_b + beta_p_b * x_m_c + beta_s_b * x_s_true_c
+    numpyro.deterministic("mu_planetary_metallicity", mu_planetary_metallicity)
+
     obs_sigma = jnp.sqrt(sig_meas_p**2 + eps_b**2)
 
-    numpyro.sample("y_planet", dist.Normal(mu, obs_sigma), obs=y_planet)
+    numpyro.sample("y_planet", dist.Normal(mu_planetary_metallicity, obs_sigma), obs=y_planet)
 
 
 def _fit_met_survey_numpyro(
@@ -281,17 +290,18 @@ def _fit_met_survey_numpyro(
     dtype = cfg.jax_dtype
 
     model_kwargs: Dict[str, Any] = dict(
-        x_m_c=jnp.asarray(x_m_c_np, dtype=dtype),
-        x_s_obs=jnp.asarray(x_s_obs, dtype=dtype),
-        sig_meas_p=jnp.asarray(sig_meas_p_np, dtype=dtype),
-        sig_meas_s=jnp.asarray(sig_meas_s_np, dtype=dtype),
-        y_planet=jnp.asarray(yp, dtype=dtype),
-        alpha_mu=alpha_mu,
-        alpha_sigma=alpha_sigma,
-        beta_m_sigma=beta_m_sigma,
-        beta_s_sigma=beta_s_sigma,
-        epsilon_sigma=epsilon_sigma,
-    )
+    x_m_c=jnp.asarray(x_m_c_np, dtype=dtype),
+    x_s_obs=jnp.asarray(x_s_obs, dtype=dtype),
+    sig_meas_p=jnp.asarray(sig_meas_p_np, dtype=dtype),
+    sig_meas_s=jnp.asarray(sig_meas_s_np, dtype=dtype),
+    y_planet=jnp.asarray(yp, dtype=dtype),
+
+    alpha_p_mu=alpha_mu,
+    alpha_p_sigma=alpha_sigma,
+    beta_p_sigma=beta_m_sigma,   # same heuristic scale as before, just renamed
+    beta_s_sigma=beta_s_sigma,
+    epsilon_p_sigma=epsilon_sigma,
+)
 
     rng_key = jax.random.PRNGKey(int(random_seed))
     mcmc, ll = _run_nuts(
