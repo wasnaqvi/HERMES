@@ -1084,7 +1084,7 @@ def plot_mass_histogram_nested_classes(
             alpha=0.5,
             label=f"{label} (n={len(arr)})",
             color=colors[label],
-        )
+        ) 
 
     ax.set_xlabel("logM")
     ax.set_ylabel("Density")

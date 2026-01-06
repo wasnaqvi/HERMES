@@ -104,7 +104,7 @@ def _run_nuts(
 
 
 # ----------------------------
-# 1) Linear + intrinsic scatter
+# 1) Linear + intrinsic scatter (1D Model)
 # ----------------------------
 def _linear_scatter_model(
     *,
@@ -192,8 +192,9 @@ def _fit_leverage_survey_numpyro(
     return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
 
-# 2) Metallicty model: y on logM and [Fe/H]
-# Getting a fix on this bad boy.
+# -----------------------------------------
+# 2) Metallicity model: y on logM and [Fe/H] (3D Model)
+# -----------------------------------------
 def _met_model(
     *,
     x_m_c: jax.Array,               # (N,) mass centered: (m - mean_mass)
@@ -224,12 +225,10 @@ def _met_model(
     # broadcast scalars across N
     alpha_b = alpha_p[..., None]
     beta_p_b = beta_p[..., None]
-    # maybe may beta_s_b just an array of ones. 
-   #beta_s_b=  jnp.ones_like(beta_s)  # for testing no stellar metallicity dependence
     beta_s_b = beta_s[..., None]
     eps_b = epsilon_p[..., None]
 
-    # THE science equation 
+    # THE science equation: planetary metallicity ~ mass + stellar metallicity
     mu_planetary_metallicity = alpha_b + beta_p_b * x_m_c + beta_s_b * x_s_true_c
     numpyro.deterministic("mu_planetary_metallicity", mu_planetary_metallicity)
 
@@ -290,18 +289,17 @@ def _fit_met_survey_numpyro(
     dtype = cfg.jax_dtype
 
     model_kwargs: Dict[str, Any] = dict(
-    x_m_c=jnp.asarray(x_m_c_np, dtype=dtype),
-    x_s_obs=jnp.asarray(x_s_obs, dtype=dtype),
-    sig_meas_p=jnp.asarray(sig_meas_p_np, dtype=dtype),
-    sig_meas_s=jnp.asarray(sig_meas_s_np, dtype=dtype),
-    y_planet=jnp.asarray(yp, dtype=dtype),
-
-    alpha_p_mu=alpha_mu,
-    alpha_p_sigma=alpha_sigma,
-    beta_p_sigma=beta_m_sigma,   # same heuristic scale as before, just renamed
-    beta_s_sigma=beta_s_sigma,
-    epsilon_p_sigma=epsilon_sigma,
-)
+        x_m_c=jnp.asarray(x_m_c_np, dtype=dtype),
+        x_s_obs=jnp.asarray(x_s_obs, dtype=dtype),
+        sig_meas_p=jnp.asarray(sig_meas_p_np, dtype=dtype),
+        sig_meas_s=jnp.asarray(sig_meas_s_np, dtype=dtype),
+        y_planet=jnp.asarray(yp, dtype=dtype),
+        alpha_p_mu=alpha_mu,
+        alpha_p_sigma=alpha_sigma,
+        beta_p_sigma=beta_m_sigma,   # same heuristic scale as before, just renamed
+        beta_s_sigma=beta_s_sigma,
+        epsilon_p_sigma=epsilon_sigma,
+    )
 
     rng_key = jax.random.PRNGKey(int(random_seed))
     mcmc, ll = _run_nuts(
@@ -375,20 +373,22 @@ def _fit_one_job(job: Tuple[ModelKind, Dict[str, Any], Survey, int]) -> Dict[str
         cfg=cfg,
         random_seed=int(seed),
     )
-    a = _scalar_stats_from_idata(idata, "alpha")
-    bm = _scalar_stats_from_idata(idata, "beta_m")
+    # FIXED: Extract the correct parameter names
+    a = _scalar_stats_from_idata(idata, "alpha_p")
+    bp = _scalar_stats_from_idata(idata, "beta_p")
     bs = _scalar_stats_from_idata(idata, "beta_s")
-    sp = _scalar_stats_from_idata(idata, "sigma_p")
+    e = _scalar_stats_from_idata(idata, "epsilon")
+    
     return {
         "survey_id": survey.survey_id,
         "class_label": survey.class_label,
         "N": survey.n,
         "L_met": float(survey.leverage(col="log(X_H2O)")),
         "L_logM": float(survey.leverage(col="logM")),
-        "alpha_mean": a["mean"], "alpha_sd": a["sd"], "alpha_hdi16": a["hdi16"], "alpha_hdi84": a["hdi84"],
-        "beta_m_mean": bm["mean"], "beta_m_sd": bm["sd"], "beta_m_hdi16": bm["hdi16"], "beta_m_hdi84": bm["hdi84"],
+        "alpha_p_mean": a["mean"], "alpha_p_sd": a["sd"], "alpha_p_hdi16": a["hdi16"], "alpha_p_hdi84": a["hdi84"],
+        "beta_p_mean": bp["mean"], "beta_p_sd": bp["sd"], "beta_p_hdi16": bp["hdi16"], "beta_p_hdi84": bp["hdi84"],
         "beta_s_mean": bs["mean"], "beta_s_sd": bs["sd"], "beta_s_hdi16": bs["hdi16"], "beta_s_hdi84": bs["hdi84"],
-        "sigma_p_mean": sp["mean"], "sigma_p_sd": sp["sd"], "sigma_p_hdi16": sp["hdi16"], "sigma_p_hdi84": sp["hdi84"],
+        "epsilon_mean": e["mean"], "epsilon_sd": e["sd"], "epsilon_hdi16": e["hdi16"], "epsilon_hdi84": e["hdi84"],
     }
 
 
@@ -397,7 +397,12 @@ def _fit_one_job(job: Tuple[ModelKind, Dict[str, Any], Survey, int]) -> Dict[str
 # -------------------------
 class Model:
     """
+    1D Model: Planetary Metallicity ~ Mass only
+    
     Fast NumPyro/JAX linear + intrinsic scatter model.
+    
+    Model equation:
+        y_planet ~ Normal(alpha + beta * (mass - mean_mass), sqrt(sigma_meas^2 + epsilon^2))
 
     Defaults are tuned for speed (CPU-friendly).
     Set compute_log_lik=True only when you need WAIC/LOO.
@@ -481,7 +486,14 @@ class Model:
 
 class MetModel:
     """
-    Fast NumPyro/JAX metallicity model (y on logM and [Fe/H] with latent true [Fe/H]).
+    3D Model: Planetary Metallicity ~ Mass + Stellar Metallicity
+    
+    Fast NumPyro/JAX metallicity model with latent true stellar metallicity.
+    
+    Model equation:
+        x_s_true ~ Normal(x_s_obs, sigma_s_meas)  # Latent true stellar metallicity
+        y_planet ~ Normal(alpha_p + beta_p * (mass - mean_mass) + beta_s * (x_s_true - mean_x_s_true), 
+                          sqrt(sigma_meas^2 + epsilon^2))
 
     Defaults are tuned for speed (CPU-friendly).
     Set compute_log_lik=True only when you need WAIC/LOO.
@@ -522,10 +534,11 @@ class MetModel:
         )
 
     def summarize_single(self, survey: Survey, idata: az.InferenceData) -> Dict[str, Any]:
-        a = _scalar_stats_from_idata(idata, "alpha")
-        bm = _scalar_stats_from_idata(idata, "beta_m")
+        # FIXED: Extract correct parameter names
+        a  = _scalar_stats_from_idata(idata, "alpha_p")
+        bp = _scalar_stats_from_idata(idata, "beta_p")
         bs = _scalar_stats_from_idata(idata, "beta_s")
-        sp = _scalar_stats_from_idata(idata, "sigma_p")
+        e  = _scalar_stats_from_idata(idata, "epsilon")
 
         return {
             "survey_id": survey.survey_id,
@@ -533,10 +546,10 @@ class MetModel:
             "N": survey.n,
             "L_met": float(survey.leverage(col="log(X_H2O)")),
             "L_logM": float(survey.leverage(col="logM")),
-            "alpha_mean": a["mean"], "alpha_sd": a["sd"], "alpha_hdi16": a["hdi16"], "alpha_hdi84": a["hdi84"],
-            "beta_m_mean": bm["mean"], "beta_m_sd": bm["sd"], "beta_m_hdi16": bm["hdi16"], "beta_m_hdi84": bm["hdi84"],
+            "alpha_p_mean": a["mean"], "alpha_p_sd": a["sd"], "alpha_p_hdi16": a["hdi16"], "alpha_p_hdi84": a["hdi84"],
+            "beta_p_mean": bp["mean"], "beta_p_sd": bp["sd"], "beta_p_hdi16": bp["hdi16"], "beta_p_hdi84": bp["hdi84"],
             "beta_s_mean": bs["mean"], "beta_s_sd": bs["sd"], "beta_s_hdi16": bs["hdi16"], "beta_s_hdi84": bs["hdi84"],
-            "sigma_p_mean": sp["mean"], "sigma_p_sd": sp["sd"], "sigma_p_hdi16": sp["hdi16"], "sigma_p_hdi84": sp["hdi84"],
+            "epsilon_mean": e["mean"], "epsilon_sd": e["sd"], "epsilon_hdi16": e["hdi16"], "epsilon_hdi84": e["hdi84"],
         }
 
     def run_on_surveys(
@@ -566,3 +579,5 @@ class MetModel:
             rows = pool.map(_fit_one_job, jobs)
 
         return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
+    
+    
