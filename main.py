@@ -10,9 +10,9 @@ from src.Model import MetModel
 from src.plots import (
     make_design_space_N_with_L_contours,
     make_met_fixedN_uncertainty_vs_L_from_df,
-    make_met_fixedN_covariance_vs_L_from_df,
     make_met_global_slope_3d_from_df,
-    plot_mass_histogram_nested_classes
+    plot_mass_histogram_nested_classes,
+     make_met_fixedN_scatter_mean_vs_L_from_df
 )
 
 
@@ -52,18 +52,11 @@ def main() -> None:
         L_col="L_logM",
     )
 
-    make_met_fixedN_covariance_vs_L_from_df(
-        met_fit_df,
-        out_dir=plots_dir,
-        L_col="L_logM",
-    )
-
-    make_met_global_slope_3d_from_df(
-        met_fit_df,
-        out_path=plots_dir / "met_slope_plane.pdf",
-        L_col="L_logM",
-    )
-
+    make_met_fixedN_scatter_mean_vs_L_from_df(
+    met_fit_df,
+    out_dir=plots_dir,
+    L_col="L_logM",
+)
 
 if __name__ == "__main__":
     main()

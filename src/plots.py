@@ -18,6 +18,72 @@ def _ensure_dir_for(path: str | Path):
         path.parent.mkdir(parents=True, exist_ok=True)
 
 
+# ----------------------- column resolution (NEW) ------------------------------
+def _pick_col(df: pd.DataFrame, *candidates: str) -> str:
+    """
+    Return the first column name in `candidates` that exists in df.
+    Raise a helpful error if none exist.
+    """
+    for c in candidates:
+        if c in df.columns:
+            return c
+    raise KeyError(
+        f"None of these columns exist: {candidates}\n"
+        f"Available columns:\n{list(df.columns)}"
+    )
+
+
+def resolve_alpha_cols(df: pd.DataFrame) -> dict:
+    return {
+        "mean": _pick_col(df, "alpha_p_mean", "alpha_mean"),
+        "sd":   _pick_col(df, "alpha_p_sd",   "alpha_sd"),
+        "lo":   _pick_col(df, "alpha_p_hdi16","alpha_hdi16"),
+        "hi":   _pick_col(df, "alpha_p_hdi84","alpha_hdi84"),
+    }
+
+
+def resolve_beta_mass_cols(df: pd.DataFrame) -> dict:
+    # 1D uses beta_*, 3D uses beta_p_*
+    return {
+        "mean": _pick_col(df, "beta_p_mean", "beta_mean"),
+        "sd":   _pick_col(df, "beta_p_sd",   "beta_sd"),
+        "lo":   _pick_col(df, "beta_p_hdi16","beta_hdi16"),
+        "hi":   _pick_col(df, "beta_p_hdi84","beta_hdi84"),
+    }
+
+
+def resolve_beta_star_cols(df: pd.DataFrame) -> dict | None:
+    # Only exists for MetModel
+    if "beta_s_mean" not in df.columns:
+        return None
+    return {
+        "mean": "beta_s_mean",
+        "sd":   "beta_s_sd",
+        "lo":   "beta_s_hdi16",
+        "hi":   "beta_s_hdi84",
+    }
+
+
+def resolve_scatter_cols(df: pd.DataFrame) -> dict:
+    # 1D Model stores epsilon under sigma_*, MetModel stores epsilon_*
+    return {
+        "mean": _pick_col(df, "epsilon_mean", "sigma_mean"),
+        "sd":   _pick_col(df, "epsilon_sd",   "sigma_sd"),
+        "lo":   _pick_col(df, "epsilon_hdi16","sigma_hdi16"),
+        "hi":   _pick_col(df, "epsilon_hdi84","sigma_hdi84"),
+    }
+
+
+def resolve_L_col(df: pd.DataFrame, preferred: str = "L_logM") -> str:
+    if preferred in df.columns:
+        return preferred
+    # common fallbacks
+    for c in ("L_3d", "L_2d", "L_logM", "L_met"):
+        if c in df.columns:
+            return c
+    raise KeyError(f"No leverage column found. Tried {preferred} and fallbacks.")
+
+
 # ----------------------- small fits ------------------------------------------
 @dataclass
 class FitResult:
@@ -306,106 +372,54 @@ def make_leverage_panels_with_hdi(
     if mode == "L":
         x_label = r"Survey leverage $L$"
         xvar = "L"
-        t_alpha = (
-            r"Fixed $N$: Uncertainty on the intercept $\sigma_\alpha$ vs. $L$"
-        )
-        t_beta = r"Fixed $N$:Uncertainty on the slope $\sigma_\beta$ vs. $L$"
-        t_eps = r"Fixed $N$:Uncertainty on intrinsic scatter $\sigma_\varepsilon$ vs. $L$"
+        t_alpha = r"Fixed $N$: Uncertainty on the intercept $\sigma_\alpha$ vs. $L$"
+        t_beta  = r"Fixed $N$: Uncertainty on the slope $\sigma_\beta$ vs. $L$"
+        t_eps   = r"Fixed $N$: Uncertainty on intrinsic scatter $\sigma_\varepsilon$ vs. $L$"
     else:
         x_label = r"Number of Targets $N$"
         xvar = "N"
-        t_alpha = (
-            r"Fixed $L$: Uncertainty on the intercept $\sigma_\alpha$ vs. $N$"
-        )
-        t_beta = r"Uncertainty on the slope $\sigma_\beta$ vs. $N$"
-        t_eps = r"Uncertainty on intrinsic scatter $\sigma_\varepsilon$ vs. $N$"
+        t_alpha = r"Fixed $L$: Uncertainty on the intercept $\sigma_\alpha$ vs. $N$"
+        t_beta  = r"Uncertainty on the slope $\sigma_\beta$ vs. $N$"
+        t_eps   = r"Uncertainty on intrinsic scatter $\sigma_\varepsilon$ vs. $N$"
 
-    # --- sigma panels ---
     _plot_sigma_vs_x(
-        x,
-        alpha_sd,
-        symbol="\\alpha",
-        title=t_alpha,
+        x, alpha_sd, symbol="\\alpha", title=t_alpha,
         outfile=Path("plots") / f"{out_prefix}_alpha.pdf",
-        add_linear=add_linear,
-        x_label=x_label,
-        xvar=xvar,
-        hdi_lo=sigma_alpha_lo,
-        hdi_hi=sigma_alpha_hi,
-        show_band=True,
-        band_kind=sigma_band_kind,
-        band_z=sigma_band_z,
+        add_linear=add_linear, x_label=x_label, xvar=xvar,
+        hdi_lo=sigma_alpha_lo, hdi_hi=sigma_alpha_hi,
+        show_band=True, band_kind=sigma_band_kind, band_z=sigma_band_z,
     )
-
     _plot_sigma_vs_x(
-        x,
-        beta_sd,
-        symbol="\\beta",
-        title=t_beta,
+        x, beta_sd, symbol="\\beta", title=t_beta,
         outfile=Path("plots") / f"{out_prefix}_beta.pdf",
-        add_linear=add_linear,
-        x_label=x_label,
-        xvar=xvar,
-        hdi_lo=sigma_beta_lo,
-        hdi_hi=sigma_beta_hi,
-        show_band=True,
-        band_kind=sigma_band_kind,
-        band_z=sigma_band_z,
+        add_linear=add_linear, x_label=x_label, xvar=xvar,
+        hdi_lo=sigma_beta_lo, hdi_hi=sigma_beta_hi,
+        show_band=True, band_kind=sigma_band_kind, band_z=sigma_band_z,
     )
-
     _plot_sigma_vs_x(
-        x,
-        epsilon_sd,
-        symbol="\\varepsilon",
-        title=t_eps,
+        x, epsilon_sd, symbol="\\varepsilon", title=t_eps,
         outfile=Path("plots") / f"{out_prefix}_epsilon.pdf",
-        add_linear=add_linear,
-        x_label=x_label,
-        xvar=xvar,
-        hdi_lo=sigma_eps_lo,
-        hdi_hi=sigma_eps_hi,
-        show_band=True,
-        band_kind=sigma_band_kind,
-        band_z=sigma_band_z,
+        add_linear=add_linear, x_label=x_label, xvar=xvar,
+        hdi_lo=sigma_eps_lo, hdi_hi=sigma_eps_hi,
+        show_band=True, band_kind=sigma_band_kind, band_z=sigma_band_z,
     )
 
-    # --- optional α/β mean ± HDI panels ---
-    if plot_param_hdi and (
-        (alpha_mean is not None)
-        and (alpha_hdi16 is not None)
-        and (alpha_hdi84 is not None)
-    ):
+    if plot_param_hdi and (alpha_mean is not None) and (alpha_hdi16 is not None) and (alpha_hdi84 is not None):
         _plot_param_with_hdi(
-            x,
-            np.asarray(alpha_mean, float),
-            np.asarray(alpha_hdi16, float),
-            np.asarray(alpha_hdi84, float),
+            x, np.asarray(alpha_mean, float), np.asarray(alpha_hdi16, float), np.asarray(alpha_hdi84, float),
             symbol="\\alpha",
             title=rf"Posterior $\alpha$ per survey (mean $\pm$ HDI) vs. ${xvar}$",
             outfile=Path("plots") / f"{out_prefix}_alpha_param.pdf",
-            x_label=x_label,
-            fit_band=True,
-            band_kind=param_band_kind,
-            band_z=param_band_z,
+            x_label=x_label, fit_band=True, band_kind=param_band_kind, band_z=param_band_z,
         )
 
-    if plot_param_hdi and (
-        (beta_mean is not None)
-        and (beta_hdi16 is not None)
-        and (beta_hdi84 is not None)
-    ):
+    if plot_param_hdi and (beta_mean is not None) and (beta_hdi16 is not None) and (beta_hdi84 is not None):
         _plot_param_with_hdi(
-            x,
-            np.asarray(beta_mean, float),
-            np.asarray(beta_hdi16, float),
-            np.asarray(beta_hdi84, float),
+            x, np.asarray(beta_mean, float), np.asarray(beta_hdi16, float), np.asarray(beta_hdi84, float),
             symbol="\\beta",
             title=rf"Posterior $\beta$ per survey (mean $\pm$ HDI) vs. ${xvar}$",
             outfile=Path("plots") / f"{out_prefix}_beta_param.pdf",
-            x_label=x_label,
-            fit_band=True,
-            band_kind=param_band_kind,
-            band_z=param_band_z,
+            x_label=x_label, fit_band=True, band_kind=param_band_kind, band_z=param_band_z,
         )
 
 
@@ -413,17 +427,24 @@ def make_leverage_panels_from_df(
     df: pd.DataFrame,
     out_prefix: str,
     x_col: Literal["leverage", "N"] = "leverage",
+    L_preferred: str = "L_logM",
 ):
     """
-    Convenience wrapper for the HERMES fit summary DataFrame.
+    Schema-robust wrapper for the HERMES fit summary DataFrame.
 
-    df must contain columns:
-      N, L_logM,
-      alpha_sd, beta_sd, sigma_sd,
-      (optionally) alpha_mean/beta_mean and HDIs if you want param panels.
+    Works for BOTH:
+      - 1D Model outputs (alpha_*, beta_*, sigma_*)
+      - 3D MetModel outputs (alpha_p_*, beta_p_*, beta_s_*, epsilon_*)
+
+    Required:
+      N, class_label, and a leverage column (default prefers L_logM).
     """
+    df = df.copy()
+
+    L_col = resolve_L_col(df, preferred=L_preferred)
+
     if x_col == "leverage":
-        x = df["L_logM"].to_numpy(float)
+        x = df[L_col].to_numpy(float)
         mode = "L"
     elif x_col == "N":
         x = df["N"].to_numpy(float)
@@ -431,21 +452,24 @@ def make_leverage_panels_from_df(
     else:
         raise ValueError("x_col must be 'leverage' or 'N'")
 
+    a = resolve_alpha_cols(df)
+    b = resolve_beta_mass_cols(df)
+    s = resolve_scatter_cols(df)
+
     make_leverage_panels_with_hdi(
         x=x,
-        alpha_sd=df["alpha_sd"].to_numpy(float),
-        beta_sd=df["beta_sd"].to_numpy(float),
-        epsilon_sd=df["sigma_sd"].to_numpy(float),
+        alpha_sd=df[a["sd"]].to_numpy(float),
+        beta_sd=df[b["sd"]].to_numpy(float),
+        epsilon_sd=df[s["sd"]].to_numpy(float),
         add_linear=False,
         mode=mode,
         prefix=out_prefix + "_",
-        # hook up these if you later add them into df:
-        alpha_mean=df.get("alpha_mean"),
-        alpha_hdi16=df.get("alpha_hdi16"),
-        alpha_hdi84=df.get("alpha_hdi84"),
-        beta_mean=df.get("beta_mean"),
-        beta_hdi16=df.get("beta_hdi16"),
-        beta_hdi84=df.get("beta_hdi84"),
+        alpha_mean=df.get(a["mean"]),
+        alpha_hdi16=df.get(a["lo"]),
+        alpha_hdi84=df.get(a["hi"]),
+        beta_mean=df.get(b["mean"]),
+        beta_hdi16=df.get(b["lo"]),
+        beta_hdi84=df.get(b["hi"]),
         plot_param_hdi=False,
     )
 
@@ -456,13 +480,6 @@ def make_design_space_N_vs_std(
     col: str = "logM",
     out_path: str | Path = "plots/design_N_vs_std_logM.png",
 ) -> None:
-    """
-    Design-space diagnostic: each point is one mock survey.
-
-    x-axis: N (survey size)
-    y-axis: std dev of `col` within that survey (e.g. logM or log(X_H2O)).
-    Points are coloured by survey.class_label (S1, S2, S3, S4).
-    """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -485,25 +502,14 @@ def make_design_space_N_vs_std(
 
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    
+
+
 def make_design_space_N_with_L_contours(
     surveys,
     col: str = "logM",
     out_path: str | Path = "plots/design_N_vs_std_logM.pdf",
     L_levels: Sequence[float] | None = None,
 ):
-    """
-    Design-space diagnostic before running any models.
-
-    Each point = one mock survey.
-      x-axis : N (survey size)
-      y-axis : std dev of `col` within that survey (e.g. logM)
-    Overplotted: curves of constant leverage L, using
-
-        L^2 = sum_i (x_i - mean)^2 ≈ (N-1) * std^2  ~ N * std^2
-
-    so   std(N) ~ L / sqrt(N).
-    """
     out_path = Path(out_path)
     _ensure_dir_for(out_path)
 
@@ -511,7 +517,6 @@ def make_design_space_N_with_L_contours(
     std = np.array([np.nanstd(s.df[col].to_numpy(float)) for s in surveys], float)
     labels = [s.class_label for s in surveys]
 
-    # actual leverage (for picking contour levels)
     L_actual = np.sqrt((N - 1) * std**2)
 
     if L_levels is None:
@@ -522,31 +527,21 @@ def make_design_space_N_with_L_contours(
 
     fig, ax = plt.subplots(figsize=(7.0, 3.6))
 
-    # scatter by class label
     unique_labels = sorted(set(labels))
     for lab in unique_labels:
         mask = np.array([l == lab for l in labels])
         ax.scatter(N[mask], std[mask], label=lab, alpha=0.8)
 
-    # constant-L curves: std(N) = L / sqrt(N)
     N_grid = np.linspace(max(1.0, N.min()), N.max(), 300)
     for L0 in L_levels:
         std_curve = L0 / np.sqrt(N_grid)
         ax.plot(N_grid, std_curve, linestyle="--")
-        ax.text(
-            N_grid[-1],
-            std_curve[-1],
-            f"L≈{L0:.1f}",
-            ha="left",
-            va="center",
-            fontsize=8,
-        )
+        ax.text(N_grid[-1], std_curve[-1], f"L≈{L0:.1f}", ha="left", va="center", fontsize=8)
 
     ax.set_xlabel("N (survey size)")
     ax.set_ylabel(f"Std dev of {col}")
     ax.set_title("Survey design space: N vs std dev with leverage contours")
 
-    # smaller, unobtrusive legend
     ax.legend(
         title="class label",
         loc="upper right",
@@ -563,19 +558,21 @@ def make_design_space_N_with_L_contours(
     fig.savefig(out_path)  # vector
     plt.close(fig)
 
+
 def make_fixedN_sigma_vs_L_scatter_from_df(
     df: pd.DataFrame,
     out_dir: str | Path = "plots",
     L_col: str = "L_logM",
 ) -> None:
     """
-    For each distinct N, make a 3-panel vector figure:
-        σ_alpha vs L, σ_beta vs L, σ_ε vs L,
-    using only surveys with that N, coloured by class_label.
+    For each distinct N, make a 3-panel figure:
+        σ_alpha vs L, σ_beta(mass) vs L, σ_scatter vs L,
+    coloured by class_label.
 
-    Now also overlays:
-      - power-law fit σ ~ a L^b with 1σ band (mean band in log-space)
-      - linear fit in original space, like the other leverage panels.
+    Schema-robust:
+      alpha_sd: alpha_sd or alpha_p_sd
+      beta_sd : beta_sd  or beta_p_sd
+      scatter : sigma_sd or epsilon_sd
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -583,18 +580,18 @@ def make_fixedN_sigma_vs_L_scatter_from_df(
     df = df.copy()
     df["N"] = df["N"].astype(int)
 
-    # consistent class ordering & colours
-    class_order = ["S1", "S2", "S3", "S4"]
-    class_colors = {
-        "S1": "C0",
-        "S2": "C1",
-        "S3": "C2",
-        "S4": "C3",
-    }
+    L_col = resolve_L_col(df, preferred=L_col)
 
-    y_cols   = ["alpha_sd", "beta_sd", "sigma_sd"]
-    y_labels = [r"$\sigma_\alpha$", r"$\sigma_\beta$", r"$\sigma_\varepsilon$"]
-    y_syms   = ["\\alpha", "\\beta", "\\varepsilon"]  # for annotations
+    a = resolve_alpha_cols(df)
+    b = resolve_beta_mass_cols(df)
+    s = resolve_scatter_cols(df)
+
+    class_order = ["S1", "S2", "S3", "S4"]
+    class_colors = {"S1": "C0", "S2": "C1", "S3": "C2", "S4": "C3"}
+
+    y_cols   = [a["sd"], b["sd"], s["sd"]]
+    y_labels = [r"$\sigma_\alpha$", r"$\sigma_{\beta}$", r"$\sigma_\varepsilon$"]
+    y_syms   = ["\\alpha", "\\beta", "\\varepsilon"]
 
     for N0 in sorted(df["N"].unique()):
         sub = df[df["N"] == N0]
@@ -606,73 +603,49 @@ def make_fixedN_sigma_vs_L_scatter_from_df(
 
         L_all = sub[L_col].to_numpy(float)
 
-        for ax, y, ylabel, sym in zip(axes, y_cols, y_labels, y_syms):
-            # --- scatter, coloured by class_label ---
+        for ax, ycol, ylabel, sym in zip(axes, y_cols, y_labels, y_syms):
             for cls in class_order:
                 cls_sub = sub[sub["class_label"] == cls]
                 if cls_sub.empty:
                     continue
                 ax.scatter(
                     cls_sub[L_col].to_numpy(float),
-                    cls_sub[y].to_numpy(float),
+                    cls_sub[ycol].to_numpy(float),
                     s=18,
                     alpha=0.9,
                     label=cls,
                     color=class_colors.get(cls, "k"),
                 )
 
-            ax.set_xlabel(r"$L(\log M)$")
+            ax.set_xlabel(fr"${L_col}$")
             ax.set_ylabel(ylabel)
             ax.minorticks_on()
 
-            # --- power-law + 1σ band + linear overlay, using ALL surveys at this N ---
-            y_all = sub[y].to_numpy(float)
+            y_all = sub[ycol].to_numpy(float)
 
-            # mask for sensible fit (positive, finite)
-            m = (
-                np.isfinite(L_all)
-                & np.isfinite(y_all)
-                & (L_all > 0)
-                & (y_all > 0)
-            )
+            m = np.isfinite(L_all) & np.isfinite(y_all) & (L_all > 0) & (y_all > 0)
             x_fit = L_all[m]
             y_fit = y_all[m]
 
             if x_fit.size >= 2:
                 xg = np.linspace(x_fit.min() * 0.98, x_fit.max() * 1.02, 200)
 
-                # power-law band (mean band, z=1 ~ 1σ)
-                y_hat, lo, hi = _powerlaw_band(
-                    x_fit,
-                    y_fit,
-                    xg,
-                    prediction=False,
-                    z=1.0,
-                )
+                y_hat, lo, hi = _powerlaw_band(x_fit, y_fit, xg, prediction=False, z=1.0)
                 ax.fill_between(xg, lo, hi, alpha=0.15, linewidth=0)
                 ax.plot(xg, y_hat, linestyle="--", linewidth=1.2)
 
-                # linear overlay in original space
                 try:
                     c, m_lin = _linear_fit(x_fit, y_fit)
                     ax.plot(xg, c + m_lin * xg, linestyle="-.", linewidth=1.0)
                 except ValueError:
-                    # not enough points after masking, just skip linear
                     pass
 
-                # annotation from power-law fit (like _plot_sigma_vs_x)
                 fr = _powerlaw_fit(x_fit, y_fit)
                 xr, yr = ax.get_xlim(), ax.get_ylim()
                 if fr.b < 0:
-                    ann = (
-                        rf"fit: $\sigma_{{{sym}}}"
-                        rf"=\dfrac{{{fr.a:.2g}}}{{L^{{{-fr.b:.2f}}}}}$"
-                    )
+                    ann = rf"fit: $\sigma_{{{sym}}}=\dfrac{{{fr.a:.2g}}}{{L^{{{-fr.b:.2f}}}}}$"
                 else:
-                    ann = (
-                        rf"fit: $\sigma_{{{sym}}}"
-                        rf"={fr.a:.2g}L^{{{fr.b:.2f}}}$"
-                    )
+                    ann = rf"fit: $\sigma_{{{sym}}}={fr.a:.2g}L^{{{fr.b:.2f}}}$"
                 ax.text(
                     xr[0] + 0.62 * (xr[1] - xr[0]),
                     yr[0] + 0.85 * (yr[1] - yr[0]),
@@ -680,39 +653,23 @@ def make_fixedN_sigma_vs_L_scatter_from_df(
                     fontsize=8,
                 )
 
-        # One legend, left-most panel, small & unobtrusive
         handles, labels = [], []
         for cls in class_order:
             if (sub["class_label"] == cls).any():
-                h = plt.Line2D(
-                    [],
-                    [],
-                    linestyle="none",
-                    marker="o",
-                    markersize=5,
-                    color=class_colors.get(cls, "k"),
-                )
+                h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5, color=class_colors.get(cls, "k"))
                 handles.append(h)
                 labels.append(cls)
         if handles:
-            axes[0].legend(
-                handles,
-                labels,
-                title="class",
-                fontsize=8,
-                title_fontsize=9,
-                frameon=False,
-                loc="best",
-            )
+            axes[0].legend(handles, labels, title="class", fontsize=8, title_fontsize=9, frameon=False, loc="best")
 
         fig.tight_layout()
         out_file = out_dir / f"fixedN_N{N0}_sigma_vs_{L_col}.pdf"
-        fig.savefig(out_file)  # vector (PDF)
+        fig.savefig(out_file)
         plt.close(fig)
 
 
 # =====================================================================
-#  METALLICITY MODEL PANELS (MetModel)
+#  METALLICITY MODEL PANELS (MetModel) — schema-robust now
 # =====================================================================
 
 def _scatter_with_fits(
@@ -725,10 +682,6 @@ def _scatter_with_fits(
     y_symbol_tex: str,
     L_label_tex: str = r"$L(\log M)$",
 ):
-    """
-    Helper: scatter by class, then power-law + 1σ band + linear overlay.
-    Intended for positive y (uncertainties, sigmas, etc.).
-    """
     x = np.asarray(x, float)
     y = np.asarray(y, float)
 
@@ -736,7 +689,6 @@ def _scatter_with_fits(
     x_fit = x[m]
     y_fit = y[m]
 
-    # scatter points coloured by class
     for cls in class_order:
         mask = (class_labels == cls)
         if not np.any(mask):
@@ -755,29 +707,20 @@ def _scatter_with_fits(
     ax.minorticks_on()
 
     if x_fit.size < 2:
-        return  # not enough points for a fit
+        return
 
     xg = np.linspace(x_fit.min() * 0.98, x_fit.max() * 1.02, 200)
 
-    # power-law band (mean, 1σ in log-space)
-    y_hat, lo, hi = _powerlaw_band(
-        x_fit,
-        y_fit,
-        xg,
-        prediction=False,
-        z=1.0,
-    )
+    y_hat, lo, hi = _powerlaw_band(x_fit, y_fit, xg, prediction=False, z=1.0)
     ax.fill_between(xg, lo, hi, alpha=0.15, linewidth=0)
     ax.plot(xg, y_hat, linestyle="--", linewidth=1.2)
 
-    # linear overlay
     try:
         c, m_lin = _linear_fit(x_fit, y_fit)
         ax.plot(xg, c + m_lin * xg, linestyle="-.", linewidth=1.0)
     except ValueError:
         pass
 
-    # annotate power-law fit
     fr = _powerlaw_fit(x_fit, y_fit)
     xr, yr = ax.get_xlim(), ax.get_ylim()
     ax.text(
@@ -794,17 +737,14 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
     L_col: str = "L_logM",
 ) -> None:
     """
-    For each distinct N (fixed-N panels), plot *uncertainty* (posterior SD)
-    vs leverage for the metallicity model:
+    For each N (fixed-N panels), plot posterior SD vs leverage for the *MetModel*:
 
-        alpha_sd, beta_m_sd, beta_s_sd, sigma_p_sd.
+      alpha: alpha_p_sd
+      beta_mass: beta_p_sd
+      beta_star: beta_s_sd
+      scatter: epsilon_sd
 
-    Panels are 2x2; points are coloured by survey class (S1–S4),
-    with power-law + 1σ band and linear overlay in each panel.
-
-    Columns expected in df:
-        N, class_label, L_col,
-        alpha_sd, beta_m_sd, beta_s_sd, sigma_p_sd.
+    NOTE: This expects MetModel-style columns; if beta_s_* absent, panel 3 is skipped.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -812,20 +752,24 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
     df = df.copy()
     df["N"] = df["N"].astype(int)
 
-    class_order = ["S1", "S2", "S3", "S4"]
-    class_colors = {
-        "S1": "C0",
-        "S2": "C1",
-        "S3": "C2",
-        "S4": "C3",
-    }
+    L_col = resolve_L_col(df, preferred=L_col)
 
-    panels = [
-        ("alpha_sd",   r"$\sigma_{\alpha}$"),
-        ("beta_m_sd",  r"$\sigma_{\beta_m}$"),
-        ("beta_s_sd",  r"$\sigma_{\beta_s}$"),
-        ("sigma_p_sd", r"$\sigma_{\sigma_p}$"),
+    a = resolve_alpha_cols(df)
+    bm = resolve_beta_mass_cols(df)
+    bs = resolve_beta_star_cols(df)  # may be None
+    sc = resolve_scatter_cols(df)
+
+    class_order = ["S1", "S2", "S3", "S4"]
+    class_colors = {"S1": "C0", "S2": "C1", "S3": "C2", "S4": "C3"}
+
+    # build panels dynamically (so it doesn't crash on missing beta_s)
+    panels: list[tuple[str, str]] = [
+        (a["sd"],  r"$\sigma_{\alpha_p}$"),
+        (bm["sd"], r"$\sigma_{\beta_p}$"),
     ]
+    if bs is not None:
+        panels.append((bs["sd"], r"$\sigma_{\beta_s}$"))
+    panels.append((sc["sd"], r"$\sigma_{\varepsilon}$"))
 
     for N0 in sorted(df["N"].unique()):
         sub = df[df["N"] == N0]
@@ -835,13 +779,17 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
         L_all = sub[L_col].to_numpy(float)
         labels = sub["class_label"].to_numpy(str)
 
-        fig, axes = plt.subplots(2, 2, figsize=(8.5, 6.0), sharex=True)
-        fig.suptitle(
-            rf"Fixed $N={N0}$: posterior uncertainties vs. leverage",
-            fontsize=12,
-        )
+        # choose layout
+        n_pan = len(panels)
+        nrows = 2
+        ncols = int(np.ceil(n_pan / nrows))
 
-        for ax, (col, ylabel) in zip(axes.ravel(), panels):
+        fig, axes = plt.subplots(nrows, ncols, figsize=(4.3 * ncols, 5.8), sharex=True)
+        axes = np.atleast_1d(axes).ravel()
+
+        fig.suptitle(rf"Fixed $N={N0}$: posterior uncertainties vs. leverage", fontsize=12)
+
+        for ax, (col, ylabel) in zip(axes, panels):
             y_all = sub[col].to_numpy(float)
             _scatter_with_fits(
                 ax,
@@ -851,33 +799,22 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
                 class_order,
                 class_colors,
                 ylabel,
-                L_label_tex=r"$L(\log M)$",
+                L_label_tex=rf"${L_col}$",
             )
 
-        # one legend on the first panel
+        # hide any unused axes
+        for ax in axes[len(panels):]:
+            ax.axis("off")
+
+        # legend on first visible axis
         handles, leg_labels = [], []
         for cls in class_order:
             if (sub["class_label"] == cls).any():
-                h = plt.Line2D(
-                    [],
-                    [],
-                    linestyle="none",
-                    marker="o",
-                    markersize=5,
-                    color=class_colors.get(cls, "k"),
-                )
+                h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5, color=class_colors.get(cls, "k"))
                 handles.append(h)
                 leg_labels.append(cls)
         if handles:
-            axes[0, 0].legend(
-                handles,
-                leg_labels,
-                title="class",
-                fontsize=8,
-                title_fontsize=9,
-                frameon=False,
-                loc="best",
-            )
+            axes[0].legend(handles, leg_labels, title="class", fontsize=8, title_fontsize=9, frameon=False, loc="best")
 
         fig.tight_layout()
         out_file = out_dir / f"met_fixedN_N{N0}_uncertainty_vs_{L_col}.pdf"
@@ -885,18 +822,14 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
         plt.close(fig)
 
 
-def make_met_fixedN_covariance_vs_L_from_df(
+def make_met_fixedN_scatter_mean_vs_L_from_df(
     df: pd.DataFrame,
     out_dir: str | Path = "plots",
     L_col: str = "L_logM",
 ) -> None:
     """
-    For each N, show how the *intrinsic scatter* of the planetary metallicity
-    changes with leverage:
-
-        sigma_p_mean vs L_logM.
-
-    Written so you can add more columns later (e.g. sigma_s_mean, rho_mean).
+    For each N, show how posterior mean intrinsic scatter changes with leverage.
+    Schema-robust: uses epsilon_mean (MetModel) or sigma_mean (1D).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -904,13 +837,11 @@ def make_met_fixedN_covariance_vs_L_from_df(
     df = df.copy()
     df["N"] = df["N"].astype(int)
 
+    L_col = resolve_L_col(df, preferred=L_col)
+    sc = resolve_scatter_cols(df)
+
     class_order = ["S1", "S2", "S3", "S4"]
-    class_colors = {
-        "S1": "C0",
-        "S2": "C1",
-        "S3": "C2",
-        "S4": "C3",
-    }
+    class_colors = {"S1": "C0", "S2": "C1", "S3": "C2", "S4": "C3"}
 
     for N0 in sorted(df["N"].unique()):
         sub = df[df["N"] == N0]
@@ -919,13 +850,10 @@ def make_met_fixedN_covariance_vs_L_from_df(
 
         L_all = sub[L_col].to_numpy(float)
         labels = sub["class_label"].to_numpy(str)
-        y_all = sub["sigma_p_mean"].to_numpy(float)
+        y_all = sub[sc["mean"]].to_numpy(float)
 
         fig, ax = plt.subplots(1, 1, figsize=(5.0, 3.2), sharex=True)
-        fig.suptitle(
-            rf"Fixed $N={N0}$: intrinsic scatter vs. leverage",
-            fontsize=12,
-        )
+        fig.suptitle(rf"Fixed $N={N0}$: intrinsic scatter vs. leverage", fontsize=12)
 
         _scatter_with_fits(
             ax,
@@ -934,37 +862,21 @@ def make_met_fixedN_covariance_vs_L_from_df(
             labels,
             class_order,
             class_colors,
-            r"$\sigma_p$",
-            L_label_tex=r"$L(\log M)$",
+            r"$\varepsilon$",
+            L_label_tex=rf"${L_col}$",
         )
 
-        # legend
         handles, leg_labels = [], []
         for cls in class_order:
             if (sub["class_label"] == cls).any():
-                h = plt.Line2D(
-                    [],
-                    [],
-                    linestyle="none",
-                    marker="o",
-                    markersize=5,
-                    color=class_colors.get(cls, "k"),
-                )
+                h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5, color=class_colors.get(cls, "k"))
                 handles.append(h)
                 leg_labels.append(cls)
         if handles:
-            ax.legend(
-                handles,
-                leg_labels,
-                title="class",
-                fontsize=8,
-                title_fontsize=9,
-                frameon=False,
-                loc="best",
-            )
+            ax.legend(handles, leg_labels, title="class", fontsize=8, title_fontsize=9, frameon=False, loc="best")
 
         fig.tight_layout()
-        out_file = out_dir / f"met_fixedN_N{N0}_covariance_vs_{L_col}.pdf"
+        out_file = out_dir / f"met_fixedN_N{N0}_scatter_mean_vs_{L_col}.pdf"
         fig.savefig(out_file)
         plt.close(fig)
 
@@ -975,49 +887,41 @@ def make_met_global_slope_3d_from_df(
     L_col: str = "L_logM",
 ) -> None:
     """
-    3D view of the *plane* being fit in parameter space.
-
-    Each point is one survey, at coordinates
-
-        (beta_m_mean, beta_s_mean, alpha_mean),
-
-    colour–coded by leverage L(logM). A best-fit plane
-
-        alpha ≈ a0 + a1 * beta_m + a2 * beta_s
-
-    is overplotted.
+    3D view in (beta_p, beta_s, alpha_p) space (MetModel).
+    Falls back gracefully if beta_s is absent.
     """
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
     out_path = Path(out_path)
     _ensure_dir_for(out_path)
 
-    beta_m = df["beta_m_mean"].to_numpy(float)
-    beta_s = df["beta_s_mean"].to_numpy(float)
-    alpha  = df["alpha_mean"].to_numpy(float)
+    L_col = resolve_L_col(df, preferred=L_col)
+
+    a = resolve_alpha_cols(df)
+    bm = resolve_beta_mass_cols(df)
+    bs = resolve_beta_star_cols(df)
+    if bs is None:
+        raise ValueError("make_met_global_slope_3d_from_df requires beta_s_* columns (MetModel output).")
+
+    beta_m = df[bm["mean"]].to_numpy(float)
+    beta_s = df[bs["mean"]].to_numpy(float)
+    alpha  = df[a["mean"]].to_numpy(float)
     L      = df[L_col].to_numpy(float)
 
     fig = plt.figure(figsize=(6.5, 5.5))
     ax = fig.add_subplot(111, projection="3d")
 
-    sc = ax.scatter(
-        beta_m,
-        beta_s,
-        alpha,
-        c=L,
-        s=35,
-        alpha=0.9,
-    )
+    sca = ax.scatter(beta_m, beta_s, alpha, c=L, s=35, alpha=0.9)
 
-    ax.set_xlabel(r"$\beta_m$ (slope on $\log M$)")
+    ax.set_xlabel(r"$\beta_p$ (slope on $\log M$)")
     ax.set_ylabel(r"$\beta_s$ (slope on stellar metallicity)")
-    ax.set_zlabel(r"$\alpha$ (intercept)")
-    ax.set_title(r"Survey planes in $(\beta_m,\beta_s,\alpha)$ space")
+    ax.set_zlabel(r"$\alpha_p$ (intercept)")
+    ax.set_title(r"Survey posteriors in $(\beta_p,\beta_s,\alpha_p)$ space")
 
-    cbar = fig.colorbar(sc, ax=ax, pad=0.1)
-    cbar.set_label(r"$L(\log M)$")
+    cbar = fig.colorbar(sca, ax=ax, pad=0.1)
+    cbar.set_label(rf"${L_col}$")
 
-    # Fit plane: alpha ≈ a0 + a1 * beta_m + a2 * beta_s
+    # plane fit: alpha ≈ a0 + a1*beta_p + a2*beta_s
     X = np.vstack([np.ones_like(beta_m), beta_m, beta_s]).T
     coef, *_ = np.linalg.lstsq(X, alpha, rcond=None)
     a0, a1, a2 = coef
@@ -1027,49 +931,27 @@ def make_met_global_slope_3d_from_df(
     BM, BS = np.meshgrid(bm_lin, bs_lin)
     A_plane = a0 + a1 * BM + a2 * BS
 
-    ax.plot_surface(
-        BM,
-        BS,
-        A_plane,
-        alpha=0.2,
-        linewidth=0,
-        antialiased=True,
-    )
+    ax.plot_surface(BM, BS, A_plane, alpha=0.2, linewidth=0, antialiased=True)
 
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
 
 
+# ---- your histogram function stays unchanged (left as-is) ----
 def plot_mass_histogram_nested_classes(
-    sampler: SurveySampler,
+    sampler: "SurveySampler",
     bins: int = 30,
 ):
     """
     Plot a single overlaid histogram of logM for S1–S4.
-
-    Colours:
-      S1: blue
-      S2: orange
-      S3: green
-      S4: red
     """
     mass_classes = sampler.mass_classes
     subset_order = ["S1", "S2", "S3", "S4"]
-    colors = {
-        "S1": "blue",
-        "S2": "orange",
-        "S3": "green",
-        "S4": "red",
-    }
+    colors = {"S1": "blue", "S2": "orange", "S3": "green", "S4": "red"}
 
-    # collect data arrays
-    data_arrays = [
-        mass_classes[label]["logM"].to_numpy(float)
-        for label in subset_order
-    ]
+    data_arrays = [mass_classes[label]["logM"].to_numpy(float) for label in subset_order]
 
-    # common bins across all subsets
     xmin = min(np.min(arr) for arr in data_arrays)
     xmax = max(np.max(arr) for arr in data_arrays)
     bin_edges = np.linspace(xmin, xmax, bins)
@@ -1084,7 +966,7 @@ def plot_mass_histogram_nested_classes(
             alpha=0.5,
             label=f"{label} (n={len(arr)})",
             color=colors[label],
-        ) 
+        )
 
     ax.set_xlabel("logM")
     ax.set_ylabel("Density")
