@@ -22,7 +22,7 @@ def main() -> None:
     # paths
     data_path = base_dir / "dataset" / "hermes_synthetic_data_0.2.0.csv"
     results_dir = base_dir / "results"
-    plots_dir = results_dir / "plots_bivariate"
+    plots_dir = results_dir / "plots_jax"
     results_dir.mkdir(exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
     hermes = HermesData.from_csv(str(data_path))
@@ -37,7 +37,7 @@ def main() -> None:
         surveys,
         out_path=plots_dir / "hermes_met_design_space_N_Lcontours.pdf",
     )
-    met_model = MetModel(draws=2000, tune=1000, target_accept=0.9)
+    met_model = MetModel(draws=4000, tune=1000, target_accept=0.9)
     met_fit_df = met_model.run_on_surveys(surveys, seed=321)
 
     met_csv_path = results_dir / "hermes_met_bivariate.csv"

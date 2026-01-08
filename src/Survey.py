@@ -1,6 +1,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
+import math
 from typing import Dict, List, Iterable, Optional
 
 from .data import HermesData  # relative import
@@ -46,7 +47,27 @@ class Survey:
         Redefine Leverage as a quadrature sum of the two 1D leverages or some Euclidean distance metric.
         '''
         return np.sqrt(self.leverage(col_x)**2 + self.leverage(col_y)**2)
-
+    
+    def leverage_3D(self,col_x: str = "logM", col_y: str = "Star Metallicity", col_z: str ="Planet Radius") -> float:
+        '''
+        3D Leverage of the specified columns. 
+        Redefine Leverage as a quadrature sum of the three 1D leverages or some Euclidean distance metric.
+        '''
+        return math.cbrt(self.leverage(col_x)**2 + self.leverage(col_y)**2 + self.leverage(col_z)**2)
+    def mahalanobis_3D(self,col_x: str = "logM", col_y: str = "Star Metallicity", col_z: str ="Planet Radius") -> float:
+        '''
+        3D Mahalanobis distance of the specified columns. 
+        '''
+        data = self.df[[col_x, col_y, col_z]].to_numpy(float)
+        data = data[np.all(np.isfinite(data), axis=1)]
+        if data.shape[0] < 2:
+            return 0.0
+        mean = np.mean(data, axis=0)
+        cov = np.cov(data, rowvar=False)
+        inv_cov = np.linalg.inv(cov)
+        diff = data - mean
+        m_dist = np.sqrt(np.einsum('ij,jk,ik->i', diff, inv_cov, diff))
+        return float(np.mean(m_dist))
 
 class SurveySampler:
     """
