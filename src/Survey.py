@@ -68,6 +68,7 @@ class Survey:
         diff = data - mean
         m_dist = np.sqrt(np.einsum('ij,jk,ik->i', diff, inv_cov, diff))
         return float(np.mean(m_dist))
+    
 
 class SurveySampler:
     """
@@ -131,5 +132,3 @@ class SurveySampler:
         return surveys
 
 
-# I have no idea why this line is still here.
-SurveyFactory = SurveySampler
