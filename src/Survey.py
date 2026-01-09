@@ -1,57 +1,10 @@
 from __future__ import annotations
-
+from .data import HermesData
 import math
 from typing import Dict, List, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
-
-from .data import HermesData  # relative import
-
-
-def compute_leverage(arr: np.ndarray) -> float:
-    """
-    1D leverage proxy:
-        L = sqrt( sum_i (x_i - mean(x))^2 )
-    computed on finite values only.
-
-    Notes
-    -----
-    - This is essentially sqrt(n) * std(x).
-      Grows with both spread and sample size.
-    """
-    arr = np.asarray(arr, float)
-    m = np.isfinite(arr)
-    arr = arr[m]
-    if arr.size < 2:
-        return 0.0
-    return float(np.sqrt(np.sum((arr - arr.mean()) ** 2)))
-
-
-def _infer_name_col(df: pd.DataFrame) -> Optional[str]:
-    """
-    Best-effort inference of a planet-name column.
-    Returns the column name if found, else None.
-
-    Expand this list as your pipeline standardizes.
-    """
-    candidates = [
-        "Planet Name",
-        "planet_name",
-        "pl_name",
-        "Name",
-        "name",
-        "Planet",
-        "planet",
-        "Target",
-        "target",
-        "TOI",
-        "toi",
-    ]
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
 
 
 def _extract_names(df: pd.DataFrame, name_col: Optional[str]) -> List[str]:
@@ -125,7 +78,7 @@ class Survey:
     def n(self) -> int:
         return len(self.df)
 
-    # --------- convenience: "what is this survey made of?" -------------------
+    # targets.
 
     def targets(self) -> List[str]:
         """Return the planet/target names in this survey (row-aligned)."""
@@ -135,9 +88,6 @@ class Survey:
         """
         Return a small inspection table with names + selected columns.
 
-        Examples
-        --------
-        survey.target_table(["logM", "Star Metallicity", "Planet Radius"])
         """
         out = pd.DataFrame({"planet_name": self.planet_names})
         if cols:
@@ -150,13 +100,25 @@ class Survey:
         return self.planet_index.get(str(name), [])
 
     # leverage and metrics testing.
-
     def leverage(self, col: str = "logM") -> float:
         """
         Leverage of the specified column.
         Default: leverage of logM.
+        1D leverage proxy:
+        L = sqrt( sum_i (x_i - mean(x))^2 )
+        computed on finite values only.
+
+        Notes
+        -----
+        - This is essentially sqrt(n) * std(x).
+        Grows with both spread and sample size.
         """
-        return compute_leverage(self.df[col].to_numpy(float))
+        arr = self.df[col].to_numpy(float)
+        m = np.isfinite(arr)
+        arr = arr[m]
+        if arr.size < 2:
+            return 0.0
+        return float(np.sqrt(np.sum((arr - arr.mean()) ** 2)))
 
     def leverage_2D(self, col_x: str = "logM", col_y: str = "Star Metallicity") -> float:
         """
@@ -168,25 +130,15 @@ class Survey:
         self,
         col_x: str = "logM",
         col_y: str = "Star Metallicity",
-        col_z: str = "Planet Radius",
+        col_z: str = "Planet Radius [Re]",
     ) -> float:
-        """
-        3D leverage proxy.
-
-        NOTE:
-        Your current definition uses cube-root of sum-of-squares:
-            cbrt(Lx^2 + Ly^2 + Lz^2)
-
-        which is somewhat unconventional (most "quadrature" norms use sqrt).
-        I kept it as-is to avoid changing semantics across your pipeline.
-        """
         return float(math.cbrt(self.leverage(col_x) ** 2 + self.leverage(col_y) ** 2 + self.leverage(col_z) ** 2))
 
     def mahalanobis_3D(
         self,
         col_x: str = "logM",
         col_y: str = "Star Metallicity",
-        col_z: str = "Planet Radius",
+        col_z: str = "Planet Radius [Re]",
     ) -> float:
         """
         Mean 3D Mahalanobis distance of points in the specified columns,
@@ -224,7 +176,7 @@ class SurveySampler:
       - Each Survey produced will carry those names forward in-memory.
 
     Why this matters:
-      - You can compute survey-level metrics (leverage, WAIC diffs, etc.)
+      - Compute survey-level metrics (leverage, WAIC diffs, etc.)
         and still have full traceability to the *exact targets* that drove
         that result.
     """
@@ -241,7 +193,7 @@ class SurveySampler:
 
         # NEW: choose / infer planet name column once (used for all surveys)
         if name_col is None:
-            name_col = _infer_name_col(self.hermes.df)
+            name_col ='Planet Name'
         self.name_col = name_col
 
         # build nested mass classes based on logM quantiles
