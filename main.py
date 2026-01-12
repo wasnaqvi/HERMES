@@ -37,7 +37,7 @@ def main() -> None:
         surveys,
         out_path=plots_dir / "hermes_met_design_space_N_Lcontours.pdf",
     )
-    met_model = MetModel(draws=4000, tune=1000, target_accept=0.9)
+    met_model = MetModel(draws=2000, tune=2000, target_accept=0.9,compute_log_lik=True)
     met_fit_df = met_model.run_on_surveys(surveys, seed=321)
 
     met_csv_path = results_dir / "hermes_met_bivariate.csv"
