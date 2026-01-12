@@ -27,9 +27,9 @@ class HermesData:
     def n(self) -> int:
         return len(self.df)
 
-    def describe_columns(self) -> pd.DataFrame:
+    def describe(self) -> pd.DataFrame:
         """
-        Convenience: get basic stats on key columns.
+        Get basic stats on key columns.
         """
         cols = ["logM", "log(X_H2O)", "uncertainty_lower", "uncertainty_upper"]
         cols = [c for c in cols if c in self.df.columns]

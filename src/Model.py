@@ -25,9 +25,6 @@ ModelKind = Literal["lin", "met"]
 JaxDType = Union[jnp.float32, jnp.float64]
 
 
-# -------------------------
-# Small utilities (fast)
-# -------------------------
 def _as_1d_float(x: npt.ArrayLike) -> Array1D:
     return np.asarray(x, dtype=float).ravel()
 

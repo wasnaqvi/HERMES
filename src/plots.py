@@ -84,7 +84,6 @@ def resolve_L_col(df: pd.DataFrame, preferred: str = "L_logM") -> str:
     raise KeyError(f"No leverage column found. Tried {preferred} and fallbacks.")
 
 
-# ----------------------- small fits ------------------------------------------
 @dataclass
 class FitResult:
     a: float

@@ -30,8 +30,8 @@ def main() -> None:
     # 2) build surveys (same design as before)
     sampler = SurveySampler(hermes, rng_seed=42)
 
-    N_grid = [30, 40, 50, 90,100,150,200]
-    surveys = sampler.sample_grid(N_grid, n_reps_per_combo=5)
+    N_grid = [30, 40, 50,100,150]
+    surveys = sampler.sample_grid(N_grid, n_reps_per_combo=10)
     
     make_design_space_N_with_L_contours(
         surveys,
