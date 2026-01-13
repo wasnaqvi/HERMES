@@ -91,4 +91,5 @@ if __name__ == "__main__":
     sampler = SurveySampler(hermes, rng_seed=42)
 
     fig, ax = plot_logM_with_classes(sampler, bins=30)
+    plt.savefig("results/Ariel_logM_with_classes.pdf", bbox_inches="tight")
     plt.show()

@@ -224,7 +224,8 @@ def _met_model(
     beta_p_b = beta_p[..., None]
     beta_s_b = beta_s[..., None]
     eps_b = epsilon_p[..., None]
-
+    
+    beta_s_b = jnp.ones_like(beta_s_b)  # ensure proper broadcasting
     # THE science equation: planetary metallicity ~ mass + stellar metallicity
     mu_planetary_metallicity = alpha_b + beta_p_b * x_m_c + beta_s_b * x_s_true_c
     numpyro.deterministic("mu_planetary_metallicity", mu_planetary_metallicity)
@@ -457,7 +458,7 @@ class Model:
         surveys: Sequence[Survey],
         seed: int = 123,
         *,
-        parallel: bool = False,
+        parallel: bool = True,
         processes: int = 4,
     ) -> pd.DataFrame:
         rng = np.random.default_rng(int(seed))

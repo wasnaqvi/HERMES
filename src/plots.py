@@ -496,6 +496,7 @@ def make_design_space_N_vs_std(
     ax.set_xlabel("N (survey size)")
     ax.set_ylabel(f"Std dev of {col}")
     ax.set_title("Survey design space: N vs std dev")
+    ax.set_ylim(bottom=0.0,top=1.0)
     ax.grid(True, alpha=0.3)
     ax.legend(title="class label")
 
@@ -538,8 +539,9 @@ def make_design_space_N_with_L_contours(
         ax.text(N_grid[-1], std_curve[-1], f"L≈{L0:.1f}", ha="left", va="center", fontsize=8)
 
     ax.set_xlabel("N (survey size)")
-    ax.set_ylabel(f"Std dev of {col}")
-    ax.set_title("Survey design space: N vs std dev with leverage contours")
+    ax.set_ylim(bottom=0.0,top=1.2)
+    ax.set_ylabel(f"Std({col})")
+    ax.set_title("Survey design space: N vs $\\sigma$ with Leverage contours")
 
     ax.legend(
         title="class label",
@@ -616,7 +618,7 @@ def make_fixedN_sigma_vs_L_scatter_from_df(
                     color=class_colors.get(cls, "k"),
                 )
 
-            ax.set_xlabel(fr"${L_col}$")
+            ax.set_xlabel(fr"$L_M$")
             ax.set_ylabel(ylabel)
             ax.minorticks_on()
 
@@ -786,7 +788,7 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
         fig, axes = plt.subplots(nrows, ncols, figsize=(4.3 * ncols, 5.8), sharex=True)
         axes = np.atleast_1d(axes).ravel()
 
-        fig.suptitle(rf"Fixed $N={N0}$: posterior uncertainties vs. leverage", fontsize=12)
+        fig.suptitle(rf"Fixed $N={N0}$: Posterior uncertainties vs. Leverage", fontsize=12)
 
         for ax, (col, ylabel) in zip(axes, panels):
             y_all = sub[col].to_numpy(float)
@@ -798,7 +800,7 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
                 class_order,
                 class_colors,
                 ylabel,
-                L_label_tex=rf"${L_col}$",
+                L_label_tex=rf"$L_M$",
             )
 
         # hide any unused axes
@@ -862,7 +864,7 @@ def make_met_fixedN_scatter_mean_vs_L_from_df(
             class_order,
             class_colors,
             r"$\varepsilon$",
-            L_label_tex=rf"${L_col}$",
+            L_label_tex=rf"$L_(log(M)$",
         )
 
         handles, leg_labels = [], []
@@ -918,7 +920,7 @@ def make_met_global_slope_3d_from_df(
     ax.set_title(r"Survey posteriors in $(\beta_p,\beta_s,\alpha_p)$ space")
 
     cbar = fig.colorbar(sca, ax=ax, pad=0.1)
-    cbar.set_label(rf"${L_col}$")
+    cbar.set_label(rf"$L_(log_M)$")
 
     # plane fit: alpha ≈ a0 + a1*beta_p + a2*beta_s
     X = np.vstack([np.ones_like(beta_m), beta_m, beta_s]).T
