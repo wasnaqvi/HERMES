@@ -1,4 +1,4 @@
-# HERMES: Hierarchical Exoplanet Regression and Survey Design
+# HERMES: HiERarchical Modelling for Exoplanet Science
 
 This repository explores how well different survey designs can recover
 population–level trends between exoplanet mass and metallicity. It works with
@@ -11,8 +11,8 @@ There are two main models:
 
 - `Model`: a **single–response** mass–metallicity regression for planetary
   water abundance.
-- `MetModel`: a **joint planetary–stellar metallicity** model that fits both
-  planet and host–star metallicities simultaneously with a shared intrinsic
+- `MetModel`: a **multi-dimensional planetary+stellar metallicity** model that fits both
+  planet and host–star metallicity relations with mass simultaneously with a shared intrinsic
   covariance.
 
 The key idea is to compare survey strategies at fixed sample size $N$ but
@@ -35,7 +35,7 @@ The starting point is a synthetic catalog wrapped by `HermesData`:
   - `Star Metallicity Lower`, `Star Metallicity Upper` — corresponding
     uncertainties.
 
-`SurveySampler` builds many mock surveys from this parent catalog:
+`SurveySampler` builds mock surveys from this parent catalog:
 
 - We choose a grid of target sample sizes $N$ (e.g. 10, 20, 30, …).
 - For each $N$ and each mass–class label (S1–S4) we draw multiple surveys.
