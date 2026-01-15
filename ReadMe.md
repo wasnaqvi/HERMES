@@ -54,7 +54,7 @@ and written out as CSV files (e.g. `results/hermes_massclass_fits.csv` and
 
 ---
 
-## 2. Single–response baseline model (`Model`)
+## 2. TWO dimensional Model (`Model`)
 
 For a given survey we observe, for each planet $i$:
 
@@ -76,7 +76,7 @@ $$
 x_i^{\mathrm{c}} = x_i - \bar x.
 $$
 
-### 2.1 PyMC model
+### 2.1 PyMC model (Now Jax. Need to rewrite this)
 
 The baseline PyMC function `_fit_leverage_survey` implements
 
@@ -131,11 +131,9 @@ For each planet $i$ in a survey we now have:
 - predictor: $x_i = \log M_i$,  
 - planetary response: $y_{p,i} = \log(X_{\mathrm{H_2O},i})$,  
 - stellar response: $y_{s,i} = \mathrm{[Fe/H]}_{\star,i}$,  
-- asymmetric measurement errors
-  $(\sigma_{i,\mathrm{low}}^{p}, \sigma_{i,\mathrm{high}}^{p})$ and
-  $(\sigma_{i,\mathrm{low}}^{s}, \sigma_{i,\mathrm{high}}^{s})$.
 
-Just in case, I have asymmetric errors in the future, I have added my work.
+
+Just in case, I have asymmetric errors in the future,
 $
 \sigma^{p}_{i,\mathrm{meas}} = \tfrac12\left(
   \lvert \sigma^{p}_{i,\mathrm{low}} \rvert +
@@ -151,7 +149,7 @@ $
 x_i^{\mathrm{c}} = x_i - \bar x.
 $
 
-### 3.1 Regression planes
+### 3.1 Bayesian Modelling.
 
 We define two parallel regression relations for the **latent** (noise–free)
 metallicities:
