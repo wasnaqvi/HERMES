@@ -17,7 +17,7 @@ import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.util import log_likelihood
 
-from .Survey import Survey  # relative import
+from .Survey import Survey  
 
 
 Array1D = npt.NDArray[np.floating]
@@ -30,6 +30,11 @@ def _as_1d_float(x: npt.ArrayLike) -> Array1D:
 
 
 def _finite_mask(*arrays: Array1D) -> npt.NDArray[np.bool_]:
+    '''
+    Basicall returns a boolean mask to select finite values over
+    for array a by
+    a[m]
+    '''
     m = np.ones(arrays[0].shape, dtype=bool)
     for a in arrays:
         m &= np.isfinite(a)
@@ -100,9 +105,6 @@ def _run_nuts(
     return mcmc, ll
 
 
-# ----------------------------
-# 1) Linear + intrinsic scatter (1D Model)
-# ----------------------------
 def _linear_scatter_model(
     *,
     x_c: jax.Array,                 # (N,)
@@ -189,9 +191,7 @@ def _fit_leverage_survey_numpyro(
     return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
 
-# -----------------------------------------
 # 2) Metallicity model: y on logM and [Fe/H] (3D Model)
-# -----------------------------------------
 def _met_model(
     *,
     x_m_c: jax.Array,               # (N,) mass centered: (m - mean_mass)
@@ -211,7 +211,7 @@ def _met_model(
     # center stellar metallicity (using latent mean; batching-safe)
     x_s_true_c = x_s_true - jnp.mean(x_s_true, axis=-1, keepdims=True)
 
-    # priors
+    # Need better priors.
     alpha_p = numpyro.sample("alpha_p", dist.Normal(alpha_p_mu, alpha_p_sigma))
     beta_p  = numpyro.sample("beta_p",  dist.Normal(0.0, beta_p_sigma))
     beta_s  = numpyro.sample("beta_s",  dist.Normal(0.0, beta_s_sigma))
