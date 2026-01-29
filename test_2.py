@@ -1,95 +1,96 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional
+from matplotlib.patches import Patch
+from matplotlib.legend_handler import HandlerTuple
 
 from src.data import HermesData
 from src.Survey import SurveySampler
 
 
-def plot_logM_with_classes(
-    sampler: SurveySampler,
-    bins: int = 30,
-    ax: Optional[plt.Axes] = None,
-):
+def add_nested_S_legend(ax):
     """
-    Overlaid histogram of logM for:
-      - parent sample (all hermes planets) as black outline
-      - nested classes S1–S4 as coloured filled histograms
-
-    Colours:
-      S1: blue
-      S2: orange
-      S3: green
-      S4: red
+    Legend encoding nesting:
+      S1: all colours
+      S2: orange + green + red
+      S3: green + red
+      S4: red only
     """
-    # parent / original sample
-    global_logm = sampler.hermes.df["logM"].to_numpy(float)
-    global_logm = global_logm[np.isfinite(global_logm)]
+    handles = [
+        (Patch(facecolor="blue", edgecolor="none", alpha=0.35),
+         Patch(facecolor="orange", edgecolor="none", alpha=0.35),
+         Patch(facecolor="green", edgecolor="none", alpha=0.35),
+         Patch(facecolor="red", edgecolor="none", alpha=0.35)),
+        (Patch(facecolor="orange", edgecolor="none", alpha=0.35),
+         Patch(facecolor="green", edgecolor="none", alpha=0.35),
+         Patch(facecolor="red", edgecolor="none", alpha=0.35)),
+        (Patch(facecolor="green", edgecolor="none", alpha=0.35),
+         Patch(facecolor="red", edgecolor="none", alpha=0.35)),
+        (Patch(facecolor="red", edgecolor="none", alpha=0.35),),
+    ]
 
-    subset_order = ["S1", "S2", "S3", "S4"]
-    colors = {"S1": "blue", "S2": "orange", "S3": "green", "S4": "red"}
+    labels = [
+        "S1 (entire Ariel MCS)",
+        "S2 (logM ≥ q25)",
+        "S3 (logM ≥ q50)",
+        "S4 (logM ≥ q75)",
+    ]
 
-    mass_classes = sampler.mass_classes
-    data_arrays = {}
-    for label in subset_order:
-        if label in mass_classes:
-            arr = mass_classes[label]["logM"].to_numpy(float)
-            arr = arr[np.isfinite(arr)]
-            if arr.size:
-                data_arrays[label] = arr
+    ax.legend(
+        handles,
+        labels,
+        handler_map={tuple: HandlerTuple(ndivide=None)},
+        title="Nested mass classes",
+        frameon=True,
+    )
 
-    # bins based on the parent sample
-    xmin = np.min(global_logm)
-    xmax = np.max(global_logm)
-    bin_edges = np.linspace(xmin, xmax, bins)
 
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(8, 6))
-    else:
-        fig = ax.figure
+def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
+    df = sampler.hermes.df
 
-    # --- parent distribution: black outline so it stays visible ---
+    logm_all = df["logM"].to_numpy(float)
+    logm_all = logm_all[np.isfinite(logm_all)]
+
+    q25, q50, q75 = np.quantile(logm_all, [0.25, 0.5, 0.75])
+
+    s1 = logm_all
+    s2 = logm_all[logm_all >= q25]
+    s3 = logm_all[logm_all >= q50]
+    s4 = logm_all[logm_all >= q75]
+
+    bin_edges = np.linspace(logm_all.min(), logm_all.max(), bins + 1)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
     ax.hist(
-        global_logm,
+        logm_all,
         bins=bin_edges,
-        density=True,
         histtype="step",
-        linewidth=2.0,
+        linewidth=2,
         color="black",
-        label=f"Entire Ariel MCS (n={len(global_logm)})",
+        label=f"Entire Ariel MCS (n={len(logm_all)})",
         zorder=5,
     )
 
-    # --- overlaid nested classes as filled coloured histograms ---
-    for label in subset_order:
-        if label not in data_arrays:
-            continue
-        arr = data_arrays[label]
-        ax.hist(
-            arr,
-            bins=bin_edges,
-            density=True,
-            alpha=0.5,
-            histtype="stepfilled",
-            edgecolor="none",
-            label=f"{label} (n={len(arr)})",
-            color=colors[label],
-            zorder=3,
-        )
+    ax.hist(s1, bins=bin_edges, alpha=0.35, color="blue",   edgecolor="none", zorder=3)
+    ax.hist(s2, bins=bin_edges, alpha=0.35, color="orange", edgecolor="none", zorder=3)
+    ax.hist(s3, bins=bin_edges, alpha=0.35, color="green",  edgecolor="none", zorder=3)
+    ax.hist(s4, bins=bin_edges, alpha=0.35, color="red",    edgecolor="none", zorder=3)
 
     ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$")
-    ax.set_ylabel("Density")
-    ax.set_title("Ariel MCS and Nested Survey Selection")
-    ax.legend()
+    ax.set_ylabel("Count")
+    ax.set_title("Ariel MCS Nested Mass Classes (Counts)")
+
+    # custom legend (replaces ax.legend())
+    add_nested_S_legend(ax)
+
     fig.tight_layout()
     return fig, ax
 
 
 if __name__ == "__main__":
-    # use HermesData wrapper, not a raw DataFrame
     hermes = HermesData.from_csv("dataset/hermes_synthetic_data.csv")
     sampler = SurveySampler(hermes, rng_seed=42)
 
-    fig, ax = plot_logM_with_classes(sampler, bins=30)
-    plt.savefig("results/Ariel_logM_with_classes.pdf", bbox_inches="tight")
+    fig, ax = plot_logm_nested_counts(sampler, bins=30)
+    fig.savefig("results/Ariel_logM_nested_counts.pdf", bbox_inches="tight")
     plt.show()

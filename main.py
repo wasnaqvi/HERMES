@@ -1,6 +1,5 @@
 # main.py
 from __future__ import annotations
-
 from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,7 +11,9 @@ from src.plots import (
     make_met_fixedN_uncertainty_vs_L_from_df,
     make_met_global_slope_3d_from_df,
     plot_mass_histogram_nested_classes,
-     make_met_fixedN_scatter_mean_vs_L_from_df
+     make_met_fixedN_scatter_mean_vs_L_from_df,
+    plot_survey_fits,
+     
 )
 
 
@@ -39,7 +40,16 @@ def main() -> None:
     )
     met_model = MetModel(draws=2000, tune=2000, target_accept=0.9,compute_log_lik=True,chain_method='parallel')
     met_fit_df = met_model.run_on_surveys(surveys, seed=321)
-
+    
+    pdf_path = plot_survey_fits(
+    surveys,
+    met_model,
+    seed=321,
+    out_dir=plots_dir,
+    n_per_class=2,  # one survey per S1..S4
+    pdf_name="survey_fits_under_the_hood.pdf",
+)
+    print("Wrote:", pdf_path)
     met_csv_path = results_dir / "hermes_met_bivariate.csv"
     met_fit_df.to_csv(met_csv_path, index=False)
     print("Wrote metallicity survey summaries to:", met_csv_path)

@@ -4,11 +4,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Literal, Sequence, Optional, Dict, List
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 
 # ----------------------- small utility ---------------------------------------
@@ -938,8 +940,7 @@ def make_met_global_slope_3d_from_df(
     fig.savefig(out_path)
     plt.close(fig)
 
-
-# ---- your histogram function stays unchanged (left as-is) ----
+ 
 def plot_mass_histogram_nested_classes(
     sampler: "SurveySampler",
     bins: int = 30,
@@ -976,3 +977,199 @@ def plot_mass_histogram_nested_classes(
     fig.tight_layout()
 
     return fig, ax
+
+def plot_survey_fits(
+    surveys: Sequence,
+    met_model,
+    *,
+    seed: int = 321,
+    out_dir: Path | None = None,
+    pdf_name: str = "survey_fits_under_the_hood.pdf",
+    n_per_class: int = 1,
+    random_seed_base: int = 10_000,
+) -> Path:
+    """
+    Fit MetModel to selected surveys (try to cover S1–S4) and write a multi-page PDF.
+    Each page (one survey) shows 3 panels:
+
+      (A) logM vs log(X_H2O): data + FULL-model fitted mean per-point (posterior median + 16–84 band)
+      (B) logM vs Star Metallicity: data only (survey covariance diagnostic)
+      (C) Star Metallicity vs log(X_H2O): data + FULL-model fitted mean per-point (posterior median + 16–84 band)
+
+    Key point: we do NOT "hold the other term at zero". We evaluate mu_i using each point's
+    (latent) stellar metallicity and mass for every posterior draw. This shows what's really fit.
+    """
+    rng = np.random.default_rng(int(seed))
+
+    if out_dir is None:
+        out_dir = Path(".")
+    else:
+        out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = out_dir / pdf_name
+
+    # ---------- pick surveys ensuring S1..S4 coverage ----------
+    by_class: Dict[str, List] = {}
+    for s in surveys:
+        by_class.setdefault(str(s.class_label), []).append(s)
+
+    desired = ["S1", "S2", "S3", "S4"]
+    selected: List = []
+    for lab in desired:
+        pool = by_class.get(lab, [])
+        if not pool:
+            continue
+        take = min(int(n_per_class), len(pool))
+        chosen = rng.choice(pool, size=take, replace=False)
+        selected.extend(list(chosen))
+
+    if len(selected) == 0:
+        selected = list(rng.choice(list(surveys), size=min(4, len(surveys)), replace=False))
+
+    # ---------- pretty defaults (no grids) ----------
+    plt.rcParams.update({
+        "figure.dpi": 130,
+        "savefig.dpi": 300,
+        "font.size": 11,
+        "axes.titlesize": 12,
+        "axes.labelsize": 11,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.linewidth": 1.0,
+        "xtick.direction": "out",
+        "ytick.direction": "out",
+        "xtick.major.size": 4,
+        "ytick.major.size": 4,
+    })
+
+    COLORS = {
+        "mass":   "#4C72B0",  # muted blue
+        "stellar":"#DD8452",  # warm orange
+        "joint":  "#55A868",  # green
+        "fit":    "#222222",  # near-black for fitted mean curve
+    }
+    BAND_ALPHA = 0.18
+    POINT_ALPHA = 0.85
+
+    def _despine(ax):
+        ax.grid(False)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    with PdfPages(pdf_path) as pdf:
+        for k, survey in enumerate(selected):
+            df = survey.df
+
+            # data
+            x_m = df["logM"].to_numpy(float)
+            x_s_obs = df["Star Metallicity"].to_numpy(float)
+            y = df["log(X_H2O)"].to_numpy(float)
+
+            el_p = df["uncertainty_lower"].to_numpy(float)
+            eh_p = df["uncertainty_upper"].to_numpy(float)
+            yerr = 0.5 * (np.abs(el_p) + np.abs(eh_p))
+            yerr = np.clip(yerr, 1e-6, None)
+
+            # fit
+            rs = int(random_seed_base + k)
+            idata = met_model.fit_survey(survey, random_seed=rs)
+
+            # posterior samples (flatten chains)
+            a  = np.asarray(idata.posterior["alpha_p"]).reshape(-1)   # (S,)
+            bp = np.asarray(idata.posterior["beta_p"]).reshape(-1)    # (S,)
+            bs = np.asarray(idata.posterior["beta_s"]).reshape(-1)    # (S,)
+
+            # latent stellar metallicity samples: (chains, draws, N) -> (S, N)
+            x_s_true = np.asarray(idata.posterior["x_s_true"])
+            x_s_true = x_s_true.reshape(-1, x_s_true.shape[-1])       # (S, N)
+
+            # centers used by fitter
+            x_m_c = x_m - float(np.mean(x_m))                         # (N,)
+            # center latent x_s_true per draw (batch-safe): x_s_true_c[s, i] = x_s_true[s,i] - mean_i x_s_true[s,i]
+            x_s_true_c = x_s_true - np.mean(x_s_true, axis=1, keepdims=True)  # (S, N)
+
+            # FULL model mean for each point, each posterior draw: mu[s,i]
+            mu = a[:, None] + bp[:, None] * x_m_c[None, :] + bs[:, None] * x_s_true_c  # (S, N)
+
+            # pointwise summaries
+            mu_med = np.median(mu, axis=0)
+            mu_lo  = np.quantile(mu, 0.16, axis=0)
+            mu_hi  = np.quantile(mu, 0.84, axis=0)
+
+            # x-axis values for stellar panel:
+            # use posterior mean of latent x_s_true per point (and center like plot axis)
+            x_s_hat = np.mean(x_s_true, axis=0)
+            x_s_hat_c = x_s_hat - float(np.mean(x_s_hat))
+
+            # sort indices for smooth-ish overlays
+            i_m = np.argsort(x_m_c)
+            i_s = np.argsort(x_s_hat_c)
+
+            # ---------- figure ----------
+            fig, axes = plt.subplots(1, 3, figsize=(14.8, 4.6), constrained_layout=True)
+
+            for lab, ax in zip(["A", "B", "C"], axes):
+                ax.text(
+                    0.02, 0.96, lab,
+                    transform=ax.transAxes,
+                    fontsize=13,
+                    fontweight="bold",
+                    va="top",
+                    ha="left",
+                )
+
+            title = f"Survey {survey.survey_id}  |  {survey.class_label}  |  N={survey.n}"
+            fig.suptitle(title, fontsize=14, fontweight="semibold", y=1.05)
+
+            # (A) logM vs log(H2O) + FULL-model fitted mu_i (sorted by mass)
+            ax = axes[0]
+            ax.errorbar(
+                x_m_c, y, yerr=yerr,
+                fmt="o", ms=4.8,
+                alpha=POINT_ALPHA,
+                color=COLORS["mass"],
+                ecolor=COLORS["mass"],
+                capsize=2, lw=0.9,
+            )
+            ax.plot(x_m_c[i_m], mu_med[i_m], lw=2.4, color=COLORS["fit"])
+            ax.fill_between(x_m_c[i_m], mu_lo[i_m], mu_hi[i_m], color=COLORS["fit"], alpha=BAND_ALPHA)
+            ax.set_xlabel("logM (centered)")
+            ax.set_ylabel("log(X$_{H_2O}$)")
+            ax.set_title("logM vs log(X$_{H_2O}$)\n(full model: per-point fitted mean)", pad=8)
+            _despine(ax)
+
+            # (B) logM vs [Fe/H] (diagnostic scatter)
+            ax = axes[1]
+            ax.scatter(
+                x_m_c, (x_s_obs - float(np.mean(x_s_obs))),
+                s=28, alpha=0.9,
+                color=COLORS["joint"],
+                edgecolor="white",
+                linewidth=0.4,
+            )
+            ax.set_xlabel("logM (centered)")
+            ax.set_ylabel("Star Metallicity (centered, observed)")
+            ax.set_title("logM vs Star Metallicity\n(survey covariance)", pad=8)
+            _despine(ax)
+
+            # (C) [Fe/H] vs log(H2O) + FULL-model fitted mu_i (sorted by latent stellar metallicity)
+            ax = axes[2]
+            ax.errorbar(
+                x_s_hat_c, y, yerr=yerr,
+                fmt="o", ms=4.8,
+                alpha=POINT_ALPHA,
+                color=COLORS["stellar"],
+                ecolor=COLORS["stellar"],
+                capsize=2, lw=0.9,
+            )
+            ax.plot(x_s_hat_c[i_s], mu_med[i_s], lw=2.4, color=COLORS["fit"])
+            ax.fill_between(x_s_hat_c[i_s], mu_lo[i_s], mu_hi[i_s], color=COLORS["fit"], alpha=BAND_ALPHA)
+            ax.set_xlabel("Star Metallicity (centered; posterior mean of latent)")
+            ax.set_ylabel("log(X$_{H_2O}$)")
+            ax.set_title("Star Metallicity vs log(X$_{H_2O}$)\n(full model: per-point fitted mean)", pad=8)
+            _despine(ax)
+
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+
+    return pdf_path
