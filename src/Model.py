@@ -1,6 +1,5 @@
 # src/Model.py
 from __future__ import annotations
-
 from dataclasses import asdict, dataclass
 from multiprocessing import get_context
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, Literal
@@ -19,11 +18,9 @@ from numpyro.infer.util import log_likelihood
 
 from .Survey import Survey  
 
-
 Array1D = npt.NDArray[np.floating]
 ModelKind = Literal["lin", "met"]
 JaxDType = Union[jnp.float32, jnp.float64]
-
 
 def _as_1d_float(x: npt.ArrayLike) -> Array1D:
     return np.asarray(x, dtype=float).ravel()
@@ -39,7 +36,6 @@ def _finite_mask(*arrays: Array1D) -> npt.NDArray[np.bool_]:
     for a in arrays:
         m &= np.isfinite(a)
     return m
-
 
 def _safe_ptp(x: Array1D, fallback: float = 1.0) -> float:
     span = float(np.ptp(x))
@@ -187,7 +183,6 @@ def _fit_leverage_survey_numpyro(
         compute_log_lik=cfg.compute_log_lik,
         chain_method=cfg.chain_method,
     )
-
     return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
 
@@ -310,10 +305,10 @@ def _fit_met_survey_numpyro(
 
     return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
-
 # -------------------------
 # Config + parallel helper
 # -------------------------
+
 @dataclass(frozen=True, slots=True)
 class ModelConfig:
     draws: int = 1200
@@ -384,8 +379,6 @@ def _fit_one_job(job: Tuple[ModelKind, Dict[str, Any], Survey, int]) -> Dict[str
         "beta_s_mean": bs["mean"], "beta_s_sd": bs["sd"], "beta_s_hdi16": bs["hdi16"], "beta_s_hdi84": bs["hdi84"],
         "epsilon_mean": e["mean"], "epsilon_sd": e["sd"], "epsilon_hdi16": e["hdi16"], "epsilon_hdi84": e["hdi84"],
     }
-
-
 # -------------------------
 # Public API: Model classes
 # -------------------------

@@ -989,15 +989,20 @@ def plot_survey_fits(
     random_seed_base: int = 10_000,
 ) -> Path:
     """
-    Fit MetModel to selected surveys (try to cover S1–S4) and write a multi-page PDF.
-    Each page (one survey) shows 3 panels:
+    For each selected survey (covering S1,S2,S3,S4), fit MetModel and create ONE figure
+    with 3 panels for the SAME survey:
 
-      (A) logM vs log(X_H2O): data + FULL-model fitted mean per-point (posterior median + 16–84 band)
-      (B) logM vs Star Metallicity: data only (survey covariance diagnostic)
-      (C) Star Metallicity vs log(X_H2O): data + FULL-model fitted mean per-point (posterior median + 16–84 band)
+      (1) logM vs log(X_H2O)
+      (2) logM vs Star Metallicity
+      (3) Star Metallicity vs log(X_H2O)
 
-    Key point: we do NOT "hold the other term at zero". We evaluate mu_i using each point's
-    (latent) stellar metallicity and mass for every posterior draw. This shows what's really fit.
+    Overlays posterior trend lines:
+      - Panel (1): y vs mass, holding stellar term at 0  => mu = a + bp*m_c
+      - Panel (3): y vs stellar, holding mass term at 0  => mu = a + bs*s_c
+      - Panel (2): data only (diagnostic scatter), no model line.
+
+    Saves everything into a single multi-page PDF (no grids).
+    Returns the PDF path.
     """
     rng = np.random.default_rng(int(seed))
 
@@ -1013,8 +1018,10 @@ def plot_survey_fits(
     for s in surveys:
         by_class.setdefault(str(s.class_label), []).append(s)
 
+    # Try to cover S1..S4 explicitly; fall back to any available labels
     desired = ["S1", "S2", "S3", "S4"]
     selected: List = []
+
     for lab in desired:
         pool = by_class.get(lab, [])
         if not pool:
@@ -1023,10 +1030,12 @@ def plot_survey_fits(
         chosen = rng.choice(pool, size=take, replace=False)
         selected.extend(list(chosen))
 
+    # If some classes missing, still add a few random surveys (optional)
     if len(selected) == 0:
+        # nothing matched; just sample from all
         selected = list(rng.choice(list(surveys), size=min(4, len(surveys)), replace=False))
 
-    # ---------- pretty defaults (no grids) ----------
+    # ---------- prettier defaults (no grids) ----------
     plt.rcParams.update({
         "figure.dpi": 130,
         "savefig.dpi": 300,
@@ -1042,15 +1051,6 @@ def plot_survey_fits(
         "ytick.major.size": 4,
     })
 
-    COLORS = {
-        "mass":   "#4C72B0",  # muted blue
-        "stellar":"#DD8452",  # warm orange
-        "joint":  "#55A868",  # green
-        "fit":    "#222222",  # near-black for fitted mean curve
-    }
-    BAND_ALPHA = 0.18
-    POINT_ALPHA = 0.85
-
     def _despine(ax):
         ax.grid(False)
         ax.spines["top"].set_visible(False)
@@ -1062,8 +1062,8 @@ def plot_survey_fits(
 
             # data
             x_m = df["logM"].to_numpy(float)
-            x_s_obs = df["Star Metallicity"].to_numpy(float)
-            y = df["log(X_H2O)"].to_numpy(float)
+            x_s = df["Star Metallicity"].to_numpy(float)
+            y   = df["log(X_H2O)"].to_numpy(float)
 
             el_p = df["uncertainty_lower"].to_numpy(float)
             eh_p = df["uncertainty_upper"].to_numpy(float)
@@ -1075,100 +1075,66 @@ def plot_survey_fits(
             idata = met_model.fit_survey(survey, random_seed=rs)
 
             # posterior samples (flatten chains)
-            a  = np.asarray(idata.posterior["alpha_p"]).reshape(-1)   # (S,)
-            bp = np.asarray(idata.posterior["beta_p"]).reshape(-1)    # (S,)
-            bs = np.asarray(idata.posterior["beta_s"]).reshape(-1)    # (S,)
+            a  = np.asarray(idata.posterior["alpha_p"]).reshape(-1)
+            bp = np.asarray(idata.posterior["beta_p"]).reshape(-1)
+            bs = np.asarray(idata.posterior["beta_s"]).reshape(-1)
 
-            # latent stellar metallicity samples: (chains, draws, N) -> (S, N)
-            x_s_true = np.asarray(idata.posterior["x_s_true"])
-            x_s_true = x_s_true.reshape(-1, x_s_true.shape[-1])       # (S, N)
+            # centers used by your fitter
+            x_m_c = x_m - float(np.mean(x_m))
+            x_s_c = x_s - float(np.mean(x_s))  # observed-centered axis for plotting
 
-            # centers used by fitter
-            x_m_c = x_m - float(np.mean(x_m))                         # (N,)
-            # center latent x_s_true per draw (batch-safe): x_s_true_c[s, i] = x_s_true[s,i] - mean_i x_s_true[s,i]
-            x_s_true_c = x_s_true - np.mean(x_s_true, axis=1, keepdims=True)  # (S, N)
+            # grids
+            m_grid = np.linspace(np.min(x_m_c), np.max(x_m_c), 250)
+            s_grid = np.linspace(np.min(x_s_c), np.max(x_s_c), 250)
 
-            # FULL model mean for each point, each posterior draw: mu[s,i]
-            mu = a[:, None] + bp[:, None] * x_m_c[None, :] + bs[:, None] * x_s_true_c  # (S, N)
+            # conditional trends (under-the-hood slices)
+            mu_m = a[:, None] + bp[:, None] * m_grid[None, :]   # hold stellar term at 0
+            mu_s = a[:, None] + bs[:, None] * s_grid[None, :]   # hold mass term at 0
 
-            # pointwise summaries
-            mu_med = np.median(mu, axis=0)
-            mu_lo  = np.quantile(mu, 0.16, axis=0)
-            mu_hi  = np.quantile(mu, 0.84, axis=0)
+            m_med = np.median(mu_m, axis=0)
+            m_lo  = np.quantile(mu_m, 0.16, axis=0)
+            m_hi  = np.quantile(mu_m, 0.84, axis=0)
 
-            # x-axis values for stellar panel:
-            # use posterior mean of latent x_s_true per point (and center like plot axis)
-            x_s_hat = np.mean(x_s_true, axis=0)
-            x_s_hat_c = x_s_hat - float(np.mean(x_s_hat))
-
-            # sort indices for smooth-ish overlays
-            i_m = np.argsort(x_m_c)
-            i_s = np.argsort(x_s_hat_c)
-
-            # ---------- figure ----------
-            fig, axes = plt.subplots(1, 3, figsize=(14.8, 4.6), constrained_layout=True)
-
-            for lab, ax in zip(["A", "B", "C"], axes):
-                ax.text(
-                    0.02, 0.96, lab,
-                    transform=ax.transAxes,
-                    fontsize=13,
-                    fontweight="bold",
-                    va="top",
-                    ha="left",
-                )
+            s_med = np.median(mu_s, axis=0)
+            s_lo  = np.quantile(mu_s, 0.16, axis=0)
+            s_hi  = np.quantile(mu_s, 0.84, axis=0)
 
             title = f"Survey {survey.survey_id}  |  {survey.class_label}  |  N={survey.n}"
-            fig.suptitle(title, fontsize=14, fontweight="semibold", y=1.05)
 
-            # (A) logM vs log(H2O) + FULL-model fitted mu_i (sorted by mass)
+            # ---------- one figure, 3 panels ----------
+            fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.5), constrained_layout=True)
+
+            # (1) logM vs log(H2O) with trend
             ax = axes[0]
-            ax.errorbar(
-                x_m_c, y, yerr=yerr,
-                fmt="o", ms=4.8,
-                alpha=POINT_ALPHA,
-                color=COLORS["mass"],
-                ecolor=COLORS["mass"],
-                capsize=2, lw=0.9,
-            )
-            ax.plot(x_m_c[i_m], mu_med[i_m], lw=2.4, color=COLORS["fit"])
-            ax.fill_between(x_m_c[i_m], mu_lo[i_m], mu_hi[i_m], color=COLORS["fit"], alpha=BAND_ALPHA)
+            ax.errorbar(x_m_c, y, yerr=yerr, fmt="o", ms=4, alpha=0.85, capsize=2, lw=0.9)
+            ax.plot(m_grid, m_med, lw=2.2)
+            ax.fill_between(m_grid, m_lo, m_hi, alpha=0.18)
             ax.set_xlabel("logM (centered)")
-            ax.set_ylabel("log(X$_{H_2O}$)")
-            ax.set_title("logM vs log(X$_{H_2O}$)\n(full model: per-point fitted mean)", pad=8)
+            ax.set_ylabel("log(X_H2O)")
+            ax.set_title("logM vs log(X_H2O)\n(stellar term held at 0)")
             _despine(ax)
 
-            # (B) logM vs [Fe/H] (diagnostic scatter)
+            # (2) logM vs [Fe/H] (data only)
             ax = axes[1]
-            ax.scatter(
-                x_m_c, (x_s_obs - float(np.mean(x_s_obs))),
-                s=28, alpha=0.9,
-                color=COLORS["joint"],
-                edgecolor="white",
-                linewidth=0.4,
-            )
+            ax.scatter(x_m_c, x_s_c, s=22, alpha=0.85)
             ax.set_xlabel("logM (centered)")
-            ax.set_ylabel("Star Metallicity (centered, observed)")
-            ax.set_title("logM vs Star Metallicity\n(survey covariance)", pad=8)
+            ax.set_ylabel("Star Metallicity (centered)")
+            ax.set_title("logM vs Star Metallicity\n(data)")
             _despine(ax)
 
-            # (C) [Fe/H] vs log(H2O) + FULL-model fitted mu_i (sorted by latent stellar metallicity)
+            # (3) log(H2O) vs [Fe/H] with trend
             ax = axes[2]
-            ax.errorbar(
-                x_s_hat_c, y, yerr=yerr,
-                fmt="o", ms=4.8,
-                alpha=POINT_ALPHA,
-                color=COLORS["stellar"],
-                ecolor=COLORS["stellar"],
-                capsize=2, lw=0.9,
-            )
-            ax.plot(x_s_hat_c[i_s], mu_med[i_s], lw=2.4, color=COLORS["fit"])
-            ax.fill_between(x_s_hat_c[i_s], mu_lo[i_s], mu_hi[i_s], color=COLORS["fit"], alpha=BAND_ALPHA)
-            ax.set_xlabel("Star Metallicity (centered; posterior mean of latent)")
-            ax.set_ylabel("log(X$_{H_2O}$)")
-            ax.set_title("Star Metallicity vs log(X$_{H_2O}$)\n(full model: per-point fitted mean)", pad=8)
+            ax.errorbar(x_s_c, y, yerr=yerr, fmt="o", ms=4, alpha=0.85, capsize=2, lw=0.9)
+            ax.plot(s_grid, s_med, lw=2.2)
+            ax.fill_between(s_grid, s_lo, s_hi, alpha=0.18)
+            ax.set_xlabel("Star Metallicity (centered)")
+            ax.set_ylabel("log(X_H2O)")
+            ax.set_title("log(X_H2O) vs Star Metallicity\n(mass term held at 0)")
             _despine(ax)
 
+            fig.suptitle(title, y=1.02, fontsize=13)
+
+            # save page to PDF
             pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
 
