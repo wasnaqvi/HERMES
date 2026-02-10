@@ -1,0 +1,365 @@
+% HERMES Extended MetModel: Diagnostics Report
+% Compile: pdflatex HERMES_report.tex  (from the dataset/ directory)
+% All \includegraphics paths are relative to dataset/.
+\documentclass[twocolumn]{aastex631}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% ------------------------------------------------------------------
+\shorttitle{HERMES Report}
+\shortauthors{HERMES Team}
+
+\begin{document}
+
+\title{HERMES Extended MetModel: Diagnostics Report}
+
+\begin{abstract}
+Add Abstract from Talk or CASCA abstract
+\end{abstract}
+
+% ==================================================================
+\section{Model Variants}\label{sec:models}
+
+The MetModel relates planetary atmospheric metallicity $y$ (log space)
+to centered planetary mass $m_c$ and host-star metallicity $s_c$:
+%
+\begin{equation}\label{eq:metmodel}
+    y_i = \alpha_p + \beta_p\, m_{c,i} + \beta_s\, s_{c,i}
+          + \varepsilon_{\mathrm{int}},
+\end{equation}
+%
+where $\varepsilon_{\mathrm{int}}$ is intrinsic (astrophysical) scatter
+beyond measurement noise. Three variants are explored:
+
+\begin{deluxetable}{lll}
+\tablecaption{Model variant definitions.\label{tab:variants}}
+\tablehead{
+  \colhead{Model} & \colhead{Equation} & \colhead{Purpose}
+}
+\startdata
+\texttt{B\_full}       & $y = \alpha_p + \beta_p m_c + \beta_s s_c + \varepsilon$ & Baseline (free scatter) \\
+\texttt{A\_no\_scatter} & $y = \alpha_p + \beta_p m_c + \beta_s s_c$              & Is scatter needed?      \\
+\texttt{C\_no\_stellar} & $y = \alpha_p + \beta_p m_c + \varepsilon$              & Is stellar met needed?  \\
+\enddata
+\end{deluxetable}
+
+\subsection{B\_full (Baseline)}
+
+Priors (data-informed):
+%
+\begin{align}
+    \alpha_p &\sim \mathcal{N}\!\bigl(\bar{y},\; \sigma_y/\sqrt{N}\bigr), \nonumber\\
+    \beta_p  &\sim \mathcal{N}\!\bigl(0,\; \Delta y/\Delta m\bigr), \nonumber\\
+    \beta_s  &\sim \mathcal{N}\!\bigl(1,\; \Delta y/\Delta s\bigr), \label{eq:priors}\\
+    \varepsilon &\sim \mathrm{HalfNormal}(\sigma_y). \nonumber
+\end{align}
+%
+\begin{itemize}
+    \item Samples all four parameters: $\alpha_p$, $\beta_p$, $\beta_s$, $\varepsilon$.
+    \item Prior on $\beta_s$ centered at $1.0$ (``Model~B''): encodes the
+          expectation that planetary and stellar metallicities correlate
+          one-to-one.
+    \item Stellar metallicity enters as a latent variable with
+          measurement-error model:
+          $s_{\mathrm{obs}} \sim \mathcal{N}(s_{\mathrm{true}},\,\sigma_s)$.
+\end{itemize}
+
+\subsection{A\_no\_scatter}
+
+\begin{itemize}
+    \item Identical to \texttt{B\_full} except $\varepsilon \equiv 0$.
+    \item Observation noise is purely $\sigma_{\mathrm{meas},p}$.
+    \item If the true data-generating process includes astrophysical
+          scatter $\Rightarrow$ disfavored by WAIC (under-fits residual
+          variance).
+\end{itemize}
+
+\subsection{C\_no\_stellar}\label{sec:cnostellar}
+
+Drops the $\beta_s\, s_c$ predictor entirely; retains free scatter:
+%
+\begin{equation}
+    y_i = \alpha_p + \beta_p\, m_{c,i} + \varepsilon_{\mathrm{int}}.
+\end{equation}
+
+\paragraph{How $\varepsilon$ absorbs the stellar signal:}
+\begin{itemize}
+    \item \texttt{C\_no\_stellar} does \emph{not} explicitly route
+          stellar metallicity into $\varepsilon$ as a parameter.
+    \item By omitting $\beta_s\, s_c$ from the mean function, any real
+          stellar--metallicity correlation becomes \emph{unmodelled
+          systematic variance}.
+    \item The sampler cannot distinguish this from astrophysical scatter
+          $\Rightarrow$ inflates the $\varepsilon$ posterior.
+    \item Result: posterior mean of $\varepsilon$ in
+          \texttt{C\_no\_stellar} is systematically larger than in
+          \texttt{B\_full}.
+    \item The difference quantifies the variance attributable to the
+          omitted stellar term.
+\end{itemize}
+
+% ==================================================================
+\section{Posterior Uncertainty vs.\ Leverage}\label{sec:sigma}
+
+\begin{itemize}
+    \item Key diagnostic: how $\sigma_{\beta_p}$ scales with survey
+          leverage $L = \sqrt{\sum (x_i - \bar{x})^2}$.
+    \item Higher leverage $\Rightarrow$ more ``statistical pull'' on the
+          slope.
+    \item Expected scaling: $\sigma_{\beta_p} \propto L^{-\gamma}$ with
+          $\gamma \approx 1$ for ideal linear regression.
+    \item Examined across $N = 30, 50, 100$ and the four survey classes
+          S1--S4.
+\end{itemize}
+
+Figures~\ref{fig:bpsd_N30}--\ref{fig:bpsd_N100}: $\sigma_{\beta_p}$
+vs.\ $L_{\mathrm{mass}}$ at fixed $N$.
+Figure~\ref{fig:bpsd_stellar}: $\sigma_{\beta_p}$ vs.\
+$L_{\mathrm{stellar}}$.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{beta_p_sd_comparison_N30.pdf}
+\caption{$\sigma_{\beta_p}$ vs.\ $L_{\mathrm{mass}}$ at $N=30$,
+three model variants side by side. Each point = one survey; colors =
+classes S1--S4; dashed = power-law fit. \texttt{B\_full} and
+\texttt{A\_no\_scatter} yield similar $\sigma_{\beta_p}$;
+\texttt{C\_no\_stellar} differs due to absorbed stellar variance.}
+\label{fig:bpsd_N30}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{beta_p_sd_comparison_N50.pdf}
+\caption{Same as Figure~\ref{fig:bpsd_N30} but $N=50$.
+Uncertainties shrink $\sim\!\sqrt{N}$; power-law slopes comparable.}
+\label{fig:bpsd_N50}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{beta_p_sd_comparison_N100.pdf}
+\caption{Same as Figure~\ref{fig:bpsd_N30} but $N=100$.
+Model-variant differences become more pronounced at this sample size.}
+\label{fig:bpsd_N100}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{beta_p_sd_comparison_stellar_N30.pdf}
+\caption{$\sigma_{\beta_p}$ vs.\ \emph{stellar} leverage
+$L_{\mathrm{stellar}}$ at $N=30$. $L_{\mathrm{stellar}}$ is not the
+natural lever arm for $\beta_p$; weaker correlation confirms
+$\sigma_{\beta_p}$ is primarily governed by $L_{\mathrm{mass}}$.}
+\label{fig:bpsd_stellar}
+\end{figure*}
+
+% ==================================================================
+\section{Z-Score Calibration}\label{sec:zscores}
+
+\subsection{Definition}
+
+For each parameter $\theta \in \{\alpha_p, \beta_p, \beta_s,
+\varepsilon\}$ and survey $k$:
+%
+\begin{equation}\label{eq:zscore}
+    z_\theta^{(k)}
+    = \frac{\hat{\theta}^{(k)} - \theta_{\mathrm{ref}}}
+           {\sigma_\theta^{(k)}},
+\end{equation}
+%
+\begin{itemize}
+    \item $\hat{\theta}^{(k)}$: posterior mean from survey $k$.
+    \item $\sigma_\theta^{(k)}$: posterior standard deviation.
+    \item $\theta_{\mathrm{ref}}$: oracle reference from fitting
+          \texttt{B\_full} to the full 618-planet catalog (or known
+          ground truth).
+\end{itemize}
+
+\subsection{Calibration Criterion}
+
+Well-calibrated posteriors $\Rightarrow$ $z \sim \mathcal{N}(0,1)$:
+%
+\begin{itemize}
+    \item $\lvert z \rvert < 1$ for $\approx 68\%$ of surveys.
+    \item $\lvert z \rvert < 2$ for $\approx 95\%$ of surveys.
+    \item No systematic bias (mean $z \approx 0$).
+    \item No trend with leverage or sample size.
+\end{itemize}
+%
+Interpretation:
+\begin{itemize}
+    \item Overdispersed ($\mathrm{SD}(z) > 1$) $\Rightarrow$
+          uncertainties underestimated.
+    \item Underdispersed ($\mathrm{SD}(z) < 1$) $\Rightarrow$
+          uncertainties overestimated (overly conservative).
+\end{itemize}
+
+\subsection{Z-Score Histograms}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{z_score_histograms.pdf}
+\caption{Z-score histograms for $\alpha_p$, $\beta_p$, $\beta_s$,
+$\varepsilon$ under \texttt{B\_full}. Red dashed = $\mathcal{N}(0,1)$
+reference. Panel titles show fraction with $\lvert z \rvert < 1$;
+values near $68\%$ = good calibration.}
+\label{fig:zhist}
+\end{figure*}
+
+\subsection{Z-Scores vs.\ Leverage}
+
+Figures~\ref{fig:zalpha}--\ref{fig:zbetas}: z-scores vs.\ both
+leverages. What to look for:
+%
+\begin{itemize}
+    \item \textbf{Trend in mean}: posterior biased at certain leverages
+          (e.g., overestimating $\beta_p$ at low $L$).
+    \item \textbf{Trend in spread} (funnel): leverage-dependent
+          miscalibration.
+    \item \textbf{No trend} (flat band $\pm 1$): desired outcome ---
+          well-calibrated across the survey design space.
+\end{itemize}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{z_alpha_p_vs_leverage.pdf}
+\caption{$z(\alpha_p)$ vs.\ $L_{\mathrm{mass}}$ (left) and
+$L_{\mathrm{stellar}}$ (right). Colors = survey class. Grey lines:
+$z=0$, $z=\pm 1$. Flat distribution at zero = well-calibrated.}
+\label{fig:zalpha}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{z_beta_p_vs_leverage.pdf}
+\caption{$z(\beta_p)$ vs.\ leverage. Most important calibration check
+for the mass slope ($\beta_p$ directly constrained by
+$L_{\mathrm{mass}}$). Widening scatter at low $L$ would suggest
+uncertainties do not fully capture limited information in narrow-range
+surveys.}
+\label{fig:zbetap}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{z_beta_s_vs_leverage.pdf}
+\caption{$z(\beta_s)$ vs.\ leverage. Right panel
+($L_{\mathrm{stellar}}$) is the natural driver of $\beta_s$ precision.
+Systematic offsets would indicate the prior $\beta_s \sim
+\mathcal{N}(1, \cdot)$ introduces bias at certain survey geometries.}
+\label{fig:zbetas}
+\end{figure*}
+
+% ==================================================================
+\section{Z-Score Ranking Table}\label{sec:ztable}
+
+Ranking metric --- mean absolute z-score across all parameters:
+%
+\begin{equation}
+    \langle |z| \rangle^{(k)} = \frac{1}{4}\sum_{\theta}
+    \bigl\lvert z_\theta^{(k)} \bigr\rvert.
+\end{equation}
+%
+\begin{itemize}
+    \item Tables~\ref{tab:zscores} and \ref{tab:zs1}--\ref{tab:zs4}:
+          top 5 surveys per class ranked by $\langle |z| \rangle$.
+    \item Large $\langle |z| \rangle$ flags surveys where the posterior
+          deviates significantly from the oracle.
+    \item Possible causes: genuinely unusual subsample or MCMC
+          convergence issue.
+\end{itemize}
+
+% ==================================================================
+\appendix
+
+\begin{table}
+\caption{Z-scores for the five best-calibrated surveys. $z_\theta = (\hat\theta - \theta_{\rm ref})/\sigma_\theta$; well-calibrated posteriors yield $|z| \lesssim 1$.}
+\label{tab:zscores}
+\begin{tabular}{ccccccccccc}
+\toprule
+Survey & Class & $N$ & $L_{\mathrm{mass}}$ & $L_{\mathrm{stellar}}$ & $\alpha_p$ & $\beta_p$ & $\beta_s$ & $\varepsilon$ & $\langle |z| \rangle$ \\
+\midrule
+6 & S1 & 50 & 5.720000 & 1.390000 & $-0.43$ & $-0.00$ & $+0.12$ & $+0.17$ & $0.18$ \\
+3 & S1 & 30 & 4.680000 & 0.940000 & $-0.91$ & $-0.56$ & $-0.52$ & $+0.13$ & $0.53$ \\
+13 & S1 & 100 & 8.330000 & 1.940000 & $-0.64$ & $-0.07$ & $-1.55$ & $-0.37$ & $0.66$ \\
+1 & S1 & 30 & 4.760000 & 1.230000 & $-1.75$ & $-0.57$ & $+0.57$ & $+0.38$ & $0.82$ \\
+15 & S1 & 100 & 8.980000 & 1.860000 & $-0.36$ & $+1.71$ & $-0.14$ & $+1.18$ & $0.85$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\begin{deluxetable*}{rrrrrrrrrr}
+\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S1.\label{tab:zs1}}
+\tablehead{
+  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
+  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
+  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+}
+\startdata
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\enddata
+\end{deluxetable*}
+
+\begin{deluxetable*}{rrrrrrrrrr}
+\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S2.\label{tab:zs2}}
+\tablehead{
+  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
+  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
+  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+}
+\startdata
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\enddata
+\end{deluxetable*}
+
+\begin{deluxetable*}{rrrrrrrrrr}
+\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S3.\label{tab:zs3}}
+\tablehead{
+  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
+  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
+  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+}
+\startdata
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\enddata
+\end{deluxetable*}
+
+\begin{deluxetable*}{rrrrrrrrrr}
+\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S4.\label{tab:zs4}}
+\tablehead{
+  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
+  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
+  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+}
+\startdata
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+--- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\enddata
+\end{deluxetable*}
+
+
+\end{document}
