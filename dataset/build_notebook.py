@@ -71,8 +71,8 @@ MCMC_SEEDS = [321, 42, 7]
 
 # Survey design -- more reps = more plot points
 SURVEY_SEED = 42
-N_GRID = [20, 30, 40, 50, 75, 100, 150]
-N_REPS = 15
+N_GRID = [20, 30, 40, 50, 60, 75, 80, 100, 150]
+N_REPS = 8
 
 # MCMC settings (local Mac can handle more than Colab)
 DRAWS = 800
@@ -168,7 +168,7 @@ cells.append(md(r"""## 4. Model Definitions
 cells.append(code(r"""def met_model_full(*, x_m_c, x_s_obs, sig_meas_p, sig_meas_s, y_planet,
                    alpha_p_mu, alpha_p_sigma, beta_p_sigma, beta_s_sigma, epsilon_p_sigma):
     x_s_true = numpyro.sample('x_s_true', dist.Normal(x_s_obs, sig_meas_s))
-    x_s_true_c = x_s_true - jnp.mean(x_s_true, axis=-1, keepdims=True)
+    x_s_true_c = x_s_true - jnp.mean(x_s_obs)
     alpha_p = numpyro.sample('alpha_p', dist.Normal(alpha_p_mu, alpha_p_sigma))
     beta_p  = numpyro.sample('beta_p',  dist.Normal(0.0, beta_p_sigma))
     beta_s  = numpyro.sample('beta_s',  dist.Normal(1.0, beta_s_sigma))
@@ -180,7 +180,7 @@ cells.append(code(r"""def met_model_full(*, x_m_c, x_s_obs, sig_meas_p, sig_meas
 def met_model_no_scatter(*, x_m_c, x_s_obs, sig_meas_p, sig_meas_s, y_planet,
                           alpha_p_mu, alpha_p_sigma, beta_p_sigma, beta_s_sigma, epsilon_p_sigma):
     x_s_true = numpyro.sample('x_s_true', dist.Normal(x_s_obs, sig_meas_s))
-    x_s_true_c = x_s_true - jnp.mean(x_s_true, axis=-1, keepdims=True)
+    x_s_true_c = x_s_true - jnp.mean(x_s_obs)
     alpha_p = numpyro.sample('alpha_p', dist.Normal(alpha_p_mu, alpha_p_sigma))
     beta_p  = numpyro.sample('beta_p',  dist.Normal(0.0, beta_p_sigma))
     beta_s  = numpyro.sample('beta_s',  dist.Normal(1.0, beta_s_sigma))
@@ -203,7 +203,7 @@ def make_met_model_fixed_scatter(fixed_value):
     def model(*, x_m_c, x_s_obs, sig_meas_p, sig_meas_s, y_planet,
               alpha_p_mu, alpha_p_sigma, beta_p_sigma, beta_s_sigma, epsilon_p_sigma):
         x_s_true = numpyro.sample('x_s_true', dist.Normal(x_s_obs, sig_meas_s))
-        x_s_true_c = x_s_true - jnp.mean(x_s_true, axis=-1, keepdims=True)
+        x_s_true_c = x_s_true - jnp.mean(x_s_obs)
         alpha_p = numpyro.sample('alpha_p', dist.Normal(alpha_p_mu, alpha_p_sigma))
         beta_p  = numpyro.sample('beta_p',  dist.Normal(0.0, beta_p_sigma))
         beta_s  = numpyro.sample('beta_s',  dist.Normal(1.0, beta_s_sigma))
@@ -415,7 +415,7 @@ def _pl_band(x,y,xg,z=1.0):
     r = ly-(A@b); dof = max(len(ly)-2,1); s2 = float(np.dot(r,r)/dof)
     Ai = np.linalg.inv(A.T@A)
     Ag = np.vstack([np.ones_like(lxg),lxg]).T
-    v = np.einsum('ij,jk,ik->i',Ag,Ai,Ag)*s2
+    v = (1.0 + np.einsum('ij,jk,ik->i',Ag,Ai,Ag))*s2
     se = np.sqrt(np.maximum(v,0.0))
     return np.exp(mu),np.exp(mu-z*se),np.exp(mu+z*se)
 
@@ -494,6 +494,59 @@ cells.append(code(r"""for N0 in sorted(df_pl['N'].unique()):
         scatter_fits(axes[1],sub['L_mass'].values,sub['epsilon_sd'].values,labels,r'$\sigma_{\varepsilon}$',r'$L_{\mathrm{mass}}$')
     add_legend(axes[0],sub); fig.tight_layout(); plt.show()"""))
 
+# ===================== CELL: Uncertainty vs N =====================
+cells.append(md(r"""## Posterior Uncertainty vs Sample Size $N$
+
+How do posterior standard deviations shrink as the survey grows?
+For ideal linear regression $\sigma \propto N^{-1/2}$."""))
+
+cells.append(code(r"""df_pn = df_results[(df_results['model']==PRIMARY)&(df_results['seed']==MCMC_SEEDS[0])].copy()
+sd_params = [('alpha_p_sd', r'$\sigma_{\alpha}$',     r'\sigma_\alpha'),
+             ('beta_p_sd',  r'$\sigma_{\beta_p}$',    r'\sigma_{\beta_p}'),
+             ('beta_s_sd',  r'$\sigma_{\beta_s}$',    r'\sigma_{\beta_s}'),
+             ('epsilon_sd', r'$\sigma_{\varepsilon}$', r'\sigma_\varepsilon')]
+sd_params = [(c,l,t) for c,l,t in sd_params if c in df_pn.columns]
+nc = len(sd_params)
+
+fig,axes = plt.subplots(1,nc,figsize=(4.0*nc,4))
+if nc==1: axes=[axes]
+fig.suptitle(r'Posterior uncertainty vs sample size $N$',fontsize=13)
+
+for ax,(sd_col,ylabel,tex_sym) in zip(axes,sd_params):
+    for cls in CLS_ORD:
+        csub = df_pn[df_pn['class_label']==cls]
+        if csub.empty: continue
+        grp = csub.groupby('N')[sd_col].agg(['mean','std']).reset_index()
+        ax.errorbar(grp['N'],grp['mean'],yerr=grp['std'],fmt='o-',ms=5,
+                    capsize=3,color=CLS_CLR.get(cls,'k'),label=cls,alpha=0.8)
+    # Power-law fit across all classes
+    x_all = df_pn['N'].values.astype(float)
+    y_all = df_pn[sd_col].values.astype(float)
+    m = np.isfinite(x_all)&np.isfinite(y_all)&(x_all>0)&(y_all>0)
+    if m.sum()>=2:
+        lx,ly = np.log(x_all[m]),np.log(y_all[m])
+        A = np.vstack([np.ones_like(lx),lx]).T
+        b = np.linalg.lstsq(A,ly,rcond=None)[0]
+        r = ly-A@b; s2 = np.dot(r,r)/max(len(ly)-2,1)
+        b_err = np.sqrt(s2*np.linalg.inv(A.T@A)[1,1])
+        Ng = np.linspace(x_all[m].min()*0.9,x_all[m].max()*1.05,200)
+        ax.plot(Ng,np.exp(b[0]+b[1]*np.log(Ng)),'k--',lw=1.2,alpha=0.6)
+        ann = rf'${tex_sym} \propto N^{{{b[1]:.2f}\,\pm\,{b_err:.2f}}}$'
+        ax.text(0.05,0.95,ann,transform=ax.transAxes,fontsize=8,va='top')
+    ax.set_xlabel(r'$N$'); ax.set_ylabel(ylabel); ax.minorticks_on()
+
+add_legend(axes[0],df_pn)
+fig.tight_layout()
+plt.savefig('uncertainty_vs_N.pdf',bbox_inches='tight')
+plt.show()
+
+# Per-class breakdown table
+print('\nMean posterior SD by class and N:')
+for sd_col,ylabel,_ in sd_params:
+    print(f'\n{ylabel}:')
+    tab = df_pn.pivot_table(index='class_label',columns='N',values=sd_col,aggfunc='mean')
+    print(tab.round(4).to_string())"""))
+
 # ===================== CELL: Z-score plots =====================
 cells.append(code(r"""df_z = df_results[(df_results['model']==PRIMARY)&(df_results['seed']==MCMC_SEEDS[0])].copy()
 z_params = [p for p in ['alpha_p','beta_p','beta_s','epsilon'] if f'z_{p}' in df_z.columns]
@@ -523,10 +576,20 @@ for p in z_params:
             cm = df_z['class_label']==cls
             if not cm.any(): continue
             ax.scatter(df_z.loc[cm,Lcol],df_z.loc[cm,f'z_{p}'],s=18,alpha=0.7,color=CLS_CLR.get(cls,'k'),label=cls)
+        xlims = ax.get_xlim()
+        ax.fill_between(xlims,-1,1,alpha=0.10,color='cornflowerblue',zorder=0)
+        ax.set_xlim(xlims)
         ax.axhline(0,color='grey',ls='--',lw=0.8)
         ax.axhline(1,color='grey',ls=':',lw=0.6); ax.axhline(-1,color='grey',ls=':',lw=0.6)
+        ax_g = ax.twiny()
+        ax_g.fill_betweenx(xgrid,0,gauss,alpha=0.12,color='salmon',zorder=0)
+        ax_g.plot(gauss,xgrid,'r-',lw=1.0,alpha=0.5)
+        ax_g.set_xlim(0,gauss.max()*5)
+        ax_g.xaxis.set_visible(False)
         ax.set_xlabel(Llab); ax.set_ylabel(f'z({p})'); ax.minorticks_on()
-    add_legend(axes[0],df_z); fig.tight_layout(); plt.show()"""))
+    add_legend(axes[0],df_z); fig.tight_layout()
+    plt.savefig(f'z_{p}_vs_leverage.pdf',bbox_inches='tight')
+    plt.show()"""))
 
 # ===================== CELL: WAIC plots (redesigned) =====================
 cells.append(code(r"""if waic_wide is not None:
