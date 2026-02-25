@@ -346,10 +346,76 @@ for p in ['alpha_p','beta_p','beta_s','epsilon']:
     if mc in df_results.columns and sc in df_results.columns:
         df_results[f'z_{p}'] = (df_results[mc]-REFERENCE[p]) / df_results[sc].clip(lower=1e-10)
 
+# --- Per-parameter z-score summary across all surveys ---
 mask = (df_results['model']==PRIMARY) & (df_results['seed']==MCMC_SEEDS[0])
-z_cols = [c for c in df_results.columns if c.startswith('z_')]
-print('\nZ-score summary:')
-print(df_results.loc[mask, z_cols].describe().round(3).to_string())"""))
+df_z_prim = df_results.loc[mask].copy()
+z_params = [p for p in ['alpha_p','beta_p','beta_s','epsilon'] if f'z_{p}' in df_z_prim.columns]
+
+print('\n=== Per-parameter z-score summary (across all surveys) ===')
+rows = []
+for p in z_params:
+    zv = df_z_prim[f'z_{p}'].dropna()
+    rows.append({
+        'parameter': p,
+        'mean(z)': f'{zv.mean():.3f}',
+        'SD(z)': f'{zv.std():.3f}',
+        'median(z)': f'{zv.median():.3f}',
+        '|z|<1 (%)': f'{(np.abs(zv)<1).mean()*100:.1f}',
+        '|z|<2 (%)': f'{(np.abs(zv)<2).mean()*100:.1f}',
+        'max|z|': f'{np.abs(zv).max():.2f}',
+    })
+z_summary = pd.DataFrame(rows).set_index('parameter')
+print(z_summary.to_string())
+print('\nCalibration target: mean(z)~0, SD(z)~1, |z|<1 ~ 68%')"""))
+
+# ===================== CELL: Z-score best surveys per parameter =====================
+cells.append(md(r"""### Top 5 Best-Calibrated Surveys Per Parameter
+
+For each parameter $\theta$, rank surveys by $|z_\theta|$ and show the
+five with smallest deviation from the oracle."""))
+
+cells.append(code(r"""from IPython.display import display, HTML
+
+nice_names = {'alpha_p': r'$\alpha_p$', 'beta_p': r'$\beta_p$',
+              'beta_s': r'$\beta_s$', 'epsilon': r'$\varepsilon$'}
+
+for p in z_params:
+    zcol = f'z_{p}'
+    df_z_prim[f'abs_z_{p}'] = df_z_prim[zcol].abs()
+    top5 = df_z_prim.nsmallest(5, f'abs_z_{p}')
+
+    tab_rows = []
+    for _, r in top5.iterrows():
+        tab_rows.append({
+            'Survey': int(r['survey_id']),
+            'Class': r['class_label'],
+            'N': int(r['N']),
+            'L_mass': round(r['L_mass'], 2),
+            'L_stellar': round(r['L_stellar'], 2),
+            f'z({p})': f'{r[zcol]:+.3f}',
+            f'|z({p})|': f'{r[f"abs_z_{p}"]:.3f}',
+        })
+    tab = pd.DataFrame(tab_rows)
+    print(f'\n--- Top 5 surveys for {p} (smallest |z|) ---')
+    print(tab.to_string(index=False))
+
+    # LaTeX output for paper
+    latex_rows = []
+    for _, r in top5.iterrows():
+        latex_rows.append({
+            'Survey': int(r['survey_id']),
+            r'$N$': int(r['N']),
+            'Class': r['class_label'],
+            r'$L_{\mathrm{mass}}$': f'{r["L_mass"]:.2f}',
+            r'$L_{\mathrm{stellar}}$': f'{r["L_stellar"]:.2f}',
+            nice_names[p]: f'${r[zcol]:+.3f}$',
+        })
+    latex_tab = pd.DataFrame(latex_rows)
+    print(latex_tab.to_latex(index=False, escape=False,
+          column_format='c'*len(latex_tab.columns),
+          caption=f'Top 5 best-calibrated surveys for {nice_names[p]}. '
+                  r'$z_\theta = (\hat\theta - \theta_{\mathrm{ref}})/\sigma_\theta$.',
+          label=f'tab:zbest_{p}'))"""))
 
 # ===================== CELL: WAIC =====================
 cells.append(md(r"""## 8. WAIC Model Comparison
@@ -419,11 +485,16 @@ def _pl_band(x,y,xg,z=1.0):
     se = np.sqrt(np.maximum(v,0.0))
     return np.exp(mu),np.exp(mu-z*se),np.exp(mu+z*se)
 
-def _lin_fit(x,y):
+def _pl_fit_unc(x,y):
+    '''Power-law fit returning (exponent, 1-sigma uncertainty).'''
     x,y = np.asarray(x,float),np.asarray(y,float)
-    m = np.isfinite(x)&np.isfinite(y)
-    X = np.vstack([np.ones_like(x[m]),x[m]]).T
-    return np.linalg.lstsq(X,y[m],rcond=None)[0]
+    m = np.isfinite(x)&np.isfinite(y)&(x>0)&(y>0)
+    lx,ly = np.log(x[m]),np.log(y[m])
+    A = np.vstack([np.ones_like(lx),lx]).T
+    b = np.linalg.lstsq(A,ly,rcond=None)[0]
+    r = ly-A@b; s2 = np.dot(r,r)/max(len(lx)-2,1)
+    cov = s2*np.linalg.inv(A.T@A)
+    return float(b[1]),float(np.sqrt(cov[1,1]))
 
 def scatter_fits(ax,x,y,labels,ylabel_tex,xlabel_tex):
     x,y = np.asarray(x,float),np.asarray(y,float)
@@ -439,13 +510,10 @@ def scatter_fits(ax,x,y,labels,ylabel_tex,xlabel_tex):
     yh,lo,hi = _pl_band(xf,yf,xg)
     ax.fill_between(xg,lo,hi,alpha=0.15,linewidth=0)
     ax.plot(xg,yh,ls='--',lw=1.2)
-    try:
-        c,sl = _lin_fit(xf,yf); ax.plot(xg,c+sl*xg,ls='-.',lw=1.0)
-    except Exception: pass
-    a,b = _pl_fit(xf,yf)
-    xr,yr = ax.get_xlim(),ax.get_ylim()
-    ann = ylabel_tex + r' $\propto L^{'+f'{b:.2f}'+r'}$'
-    ax.text(xr[0]+0.55*(xr[1]-xr[0]),yr[0]+0.86*(yr[1]-yr[0]),ann,fontsize=8)
+    b,b_err = _pl_fit_unc(xf,yf)
+    sym = ylabel_tex.strip().strip('$')
+    ann = rf'${sym} \propto L^{{{b:.2f}\;^{{+{b_err:.2f}}}_{{-{b_err:.2f}}}}}$'
+    ax.text(0.05,0.95,ann,transform=ax.transAxes,fontsize=8,va='top')
 
 def add_legend(ax,sub):
     hs,ls = [],[]
@@ -519,19 +587,17 @@ for ax,(sd_col,ylabel,tex_sym) in zip(axes,sd_params):
         grp = csub.groupby('N')[sd_col].agg(['mean','std']).reset_index()
         ax.errorbar(grp['N'],grp['mean'],yerr=grp['std'],fmt='o-',ms=5,
                     capsize=3,color=CLS_CLR.get(cls,'k'),label=cls,alpha=0.8)
-    # Power-law fit across all classes
+    # Power-law fit across all classes (with prediction band)
     x_all = df_pn['N'].values.astype(float)
     y_all = df_pn[sd_col].values.astype(float)
     m = np.isfinite(x_all)&np.isfinite(y_all)&(x_all>0)&(y_all>0)
     if m.sum()>=2:
-        lx,ly = np.log(x_all[m]),np.log(y_all[m])
-        A = np.vstack([np.ones_like(lx),lx]).T
-        b = np.linalg.lstsq(A,ly,rcond=None)[0]
-        r = ly-A@b; s2 = np.dot(r,r)/max(len(ly)-2,1)
-        b_err = np.sqrt(s2*np.linalg.inv(A.T@A)[1,1])
         Ng = np.linspace(x_all[m].min()*0.9,x_all[m].max()*1.05,200)
-        ax.plot(Ng,np.exp(b[0]+b[1]*np.log(Ng)),'k--',lw=1.2,alpha=0.6)
-        ann = rf'${tex_sym} \propto N^{{{b[1]:.2f}\,\pm\,{b_err:.2f}}}$'
+        yh,lo,hi = _pl_band(x_all[m],y_all[m],Ng)
+        ax.fill_between(Ng,lo,hi,alpha=0.12,color='grey',linewidth=0)
+        ax.plot(Ng,yh,'k--',lw=1.2,alpha=0.6)
+        b_exp,b_err = _pl_fit_unc(x_all[m],y_all[m])
+        ann = rf'${tex_sym} \propto N^{{{b_exp:.2f}\;^{{+{b_err:.2f}}}_{{-{b_err:.2f}}}}}$'
         ax.text(0.05,0.95,ann,transform=ax.transAxes,fontsize=8,va='top')
     ax.set_xlabel(r'$N$'); ax.set_ylabel(ylabel); ax.minorticks_on()
 
