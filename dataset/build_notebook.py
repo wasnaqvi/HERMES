@@ -584,9 +584,8 @@ for ax,(sd_col,ylabel,tex_sym) in zip(axes,sd_params):
     for cls in CLS_ORD:
         csub = df_pn[df_pn['class_label']==cls]
         if csub.empty: continue
-        grp = csub.groupby('N')[sd_col].agg(['mean','std']).reset_index()
-        ax.errorbar(grp['N'],grp['mean'],yerr=grp['std'],fmt='o-',ms=5,
-                    capsize=3,color=CLS_CLR.get(cls,'k'),label=cls,alpha=0.8)
+        ax.scatter(csub['N'].values,csub[sd_col].values,s=20,alpha=0.7,
+                   color=CLS_CLR.get(cls,'k'),label=cls)
     # Power-law fit across all classes (with prediction band)
     x_all = df_pn['N'].values.astype(float)
     y_all = df_pn[sd_col].values.astype(float)
