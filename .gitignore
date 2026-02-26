@@ -1,6 +1,7 @@
 *.csv
 *.png
 *.pdf
+*.tex
 results/
 plots/
 src/HierModel.py

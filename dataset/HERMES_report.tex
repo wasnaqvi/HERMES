@@ -229,7 +229,7 @@ same but against $L_{\mathrm{stellar}}$.
 \includegraphics[width=\textwidth]{beta_p_sd_comparison_N30.pdf}
 \caption{$\sigma_{\beta_p}$ vs.\ $L_{\mathrm{mass}}$ at $N=30$,
 three model variants side by side. Each point = one survey; colors =
-classes S1--S4; dashed = power-law fit. \texttt{B\_full} and
+classes S1--S4; dashed = power-law fit with prediction band. \texttt{B\_full} and
 \texttt{A\_no\_scatter} yield similar $\sigma_{\beta_p}$;
 \texttt{C\_no\_stellar} differs due to absorbed stellar variance.}
 \label{fig:bpsd_N30}
@@ -281,8 +281,9 @@ For a complete picture, all four posterior uncertainties
 ($\sigma_{\alpha_p}$, $\sigma_{\beta_p}$, $\sigma_{\beta_s}$,
 $\sigma_{\varepsilon}$) are plotted against both $L_{\mathrm{mass}}$
 and $L_{\mathrm{stellar}}$ simultaneously.  Each panel includes a
-power-law fit with uncertainty on the exponent:
-$\sigma_\theta \propto L^{\gamma \pm \delta\gamma}$.
+power-law fit with uncertainty on the exponent reported as
+sub/superscripts:
+$\sigma_\theta \propto L^{\gamma\;^{+\delta\gamma}_{-\delta\gamma}}$.
 
 Figures~\ref{fig:panels_N30}--\ref{fig:panels_N100}: $2 \times 4$
 panel grids for each fixed $N$.
@@ -294,7 +295,7 @@ panel grids for each fixed $N$.
 (top), $L_{\mathrm{stellar}}$ (bottom). Columns: $\sigma_{\alpha_p}$,
 $\sigma_{\beta_p}$, $\sigma_{\beta_s}$, $\sigma_{\varepsilon}$.
 Blue band = prediction interval from power-law fit; annotation =
-exponent $\gamma \pm \delta\gamma$.}
+exponent $\gamma\;^{+\delta\gamma}_{-\delta\gamma}$.}
 \label{fig:panels_N30}
 \end{figure*}
 
@@ -310,6 +311,29 @@ exponent $\gamma \pm \delta\gamma$.}
 \includegraphics[width=\textwidth]{uncertainty_panels_N100.pdf}
 \caption{Same as Figure~\ref{fig:panels_N30} but $N=100$.}
 \label{fig:panels_N100}
+\end{figure*}
+
+% ==================================================================
+\section{Posterior Uncertainty vs.\ Sample Size}\label{sec:sigma_N}
+
+Figure~\ref{fig:unc_vs_N} shows all four posterior uncertainties
+($\sigma_{\alpha_p}$, $\sigma_{\beta_p}$, $\sigma_{\beta_s}$,
+$\sigma_{\varepsilon}$) as a function of sample size~$N$.  Individual
+survey results are plotted as scatter points colored by mass class
+(S1--S4), with a pooled power-law fit and prediction band overlaid.
+The annotation reports the scaling exponent with 1-$\sigma$ uncertainty
+as sub/superscripts:
+$\sigma_\theta \propto N^{\gamma\;^{+\delta\gamma}_{-\delta\gamma}}$.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{uncertainty_vs_N.pdf}
+\caption{Posterior uncertainty vs.\ sample size~$N$ for all four
+parameters.  Points = individual surveys colored by class; dashed line
+= power-law fit; grey band = prediction interval.  Annotation gives the
+scaling exponent with 1-$\sigma$ bounds.  All parameters show the
+expected decay: larger~$N$ $\Rightarrow$ tighter posteriors.}
+\label{fig:unc_vs_N}
 \end{figure*}
 
 % ==================================================================
@@ -479,23 +503,31 @@ computed:
 \end{itemize}
 
 % ==================================================================
-\section{Z-Score Ranking Table}\label{sec:ztable}
+\section{Z-Score Ranking Tables}\label{sec:ztable}
 
-Ranking metric --- mean absolute z-score across all parameters:
-%
-\begin{equation}
-    \langle |z| \rangle^{(k)} = \frac{1}{4}\sum_{\theta}
-    \bigl\lvert z_\theta^{(k)} \bigr\rvert.
-\end{equation}
+\subsection{Per-Parameter Summary}
+
+Rather than aggregating across parameters, z-scores are summarized
+\emph{per parameter} across all surveys.  For each
+$\theta \in \{\alpha_p, \beta_p, \beta_s, \varepsilon\}$ the notebook
+reports:
 %
 \begin{itemize}
-    \item Tables~\ref{tab:zscores} and \ref{tab:zs1}--\ref{tab:zs4}:
-          top 5 surveys per class ranked by $\langle |z| \rangle$.
-    \item Large $\langle |z| \rangle$ flags surveys where the posterior
-          deviates significantly from the oracle.
-    \item Possible causes: genuinely unusual subsample or MCMC
-          convergence issue.
+    \item mean($z_\theta$), SD($z_\theta$), median($z_\theta$);
+    \item fraction of surveys with $|z_\theta| < 1$ and $|z_\theta| < 2$;
+    \item max$\,|z_\theta|$.
 \end{itemize}
+%
+Calibration target: mean($z$) $\approx 0$, SD($z$) $\approx 1$,
+$|z|<1$ for $\approx 68\%$ of surveys.
+
+\subsection{Top 5 Best-Calibrated Surveys Per Parameter}
+
+For each parameter $\theta$, surveys are ranked by $|z_\theta|$ and the
+five with smallest deviation from the oracle are reported
+(Tables~\ref{tab:zbest_alpha_p}--\ref{tab:zbest_epsilon}).  This
+identifies which survey geometries ($N$, class, leverage) yield the
+most accurate posteriors for each individual parameter.
 
 % ==================================================================
 \section{Hierarchical MetModel}\label{sec:hier}
@@ -567,90 +599,54 @@ standard deviations:
 % ==================================================================
 \appendix
 
-\begin{table}
-\caption{Z-scores for the five best-calibrated surveys. $z_\theta = (\hat\theta - \theta_{\rm ref})/\sigma_\theta$; well-calibrated posteriors yield $|z| \lesssim 1$.}
-\label{tab:zscores}
-\begin{tabular}{ccccccccccc}
-\toprule
-Survey & Class & $N$ & $L_{\mathrm{mass}}$ & $L_{\mathrm{stellar}}$ & $\alpha_p$ & $\beta_p$ & $\beta_s$ & $\varepsilon$ & $\langle |z| \rangle$ \\
-\midrule
-6 & S1 & 50 & 5.720000 & 1.390000 & $-0.43$ & $-0.00$ & $+0.12$ & $+0.17$ & $0.18$ \\
-3 & S1 & 30 & 4.680000 & 0.940000 & $-0.91$ & $-0.56$ & $-0.52$ & $+0.13$ & $0.53$ \\
-13 & S1 & 100 & 8.330000 & 1.940000 & $-0.64$ & $-0.07$ & $-1.55$ & $-0.37$ & $0.66$ \\
-1 & S1 & 30 & 4.760000 & 1.230000 & $-1.75$ & $-0.57$ & $+0.57$ & $+0.38$ & $0.82$ \\
-15 & S1 & 100 & 8.980000 & 1.860000 & $-0.36$ & $+1.71$ & $-0.14$ & $+1.18$ & $0.85$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-
-\begin{deluxetable*}{rrrrrrrrrr}
-\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S1.\label{tab:zs1}}
+\begin{deluxetable}{cccccc}
+\tablecaption{Top 5 best-calibrated surveys for $\alpha_p$.
+$z_\theta = (\hat\theta - \theta_{\mathrm{ref}})/\sigma_\theta$.\label{tab:zbest_alpha_p}}
 \tablehead{
-  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
-  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
-  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
-  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+  \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
+  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$z(\alpha_p)$}
 }
 \startdata
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
 \enddata
-\end{deluxetable*}
+\end{deluxetable}
 
-\begin{deluxetable*}{rrrrrrrrrr}
-\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S2.\label{tab:zs2}}
+\begin{deluxetable}{cccccc}
+\tablecaption{Top 5 best-calibrated surveys for $\beta_p$.\label{tab:zbest_beta_p}}
 \tablehead{
-  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
-  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
-  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
-  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+  \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
+  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$z(\beta_p)$}
 }
 \startdata
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
 \enddata
-\end{deluxetable*}
+\end{deluxetable}
 
-\begin{deluxetable*}{rrrrrrrrrr}
-\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S3.\label{tab:zs3}}
+\begin{deluxetable}{cccccc}
+\tablecaption{Top 5 best-calibrated surveys for $\beta_s$.\label{tab:zbest_beta_s}}
 \tablehead{
-  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
-  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
-  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
-  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+  \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
+  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$z(\beta_s)$}
 }
 \startdata
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
 \enddata
-\end{deluxetable*}
+\end{deluxetable}
 
-\begin{deluxetable*}{rrrrrrrrrr}
-\tablecaption{Top 5 surveys by $\langle |z| \rangle$ in class S4.\label{tab:zs4}}
+\begin{deluxetable}{cccccc}
+\tablecaption{Top 5 best-calibrated surveys for $\varepsilon$.\label{tab:zbest_epsilon}}
 \tablehead{
-  \colhead{ID} & \colhead{$N$} & \colhead{$L_{\mathrm{mass}}$} &
-  \colhead{$L_{\mathrm{stellar}}$} & \colhead{$z(\alpha_p)$} &
-  \colhead{$z(\beta_p)$} & \colhead{$z(\beta_s)$} &
-  \colhead{$z(\varepsilon)$} & \colhead{$\langle |z| \rangle$}
+  \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
+  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$z(\varepsilon)$}
 }
 \startdata
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
---- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
 \enddata
-\end{deluxetable*}
+\end{deluxetable}
 
 
 \end{document}
