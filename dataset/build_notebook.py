@@ -52,9 +52,9 @@ print('JAX devices:', jax.devices())"""))
 # ===================== CELL 2: Load data (local) =====================
 cells.append(md(r"""## 1. Load Data"""))
 
-cells.append(code(r"""DATA_PATH = Path('hermes_synthetic_data_0.2.0.csv')
+cells.append(code(r"""DATA_PATH = Path('hermes_synthetic_data_0.3.0.csv')
 if not DATA_PATH.exists():
-    DATA_PATH = Path(__file__).parent / 'hermes_synthetic_data_0.2.0.csv' if '__file__' in dir() else DATA_PATH
+    DATA_PATH = Path(__file__).parent / 'hermes_synthetic_data_0.3.0.csv' if '__file__' in dir() else DATA_PATH
     if not DATA_PATH.exists():
         raise FileNotFoundError(f'Put hermes_synthetic_data_0.2.0.csv in the working directory. Tried: {DATA_PATH}')
 
@@ -791,6 +791,141 @@ if 'epsilon_mean' in df_sc.columns:
         scatter_fits(axes[0],sub['L_mass'].values,sub['epsilon_mean'].values,labels,r'$\hat{\varepsilon}$',r'$L_{\mathrm{mass}}$')
         scatter_fits(axes[1],sub['L_stellar'].values,sub['epsilon_mean'].values,labels,r'$\hat{\varepsilon}$',r'$L_{\mathrm{stellar}}$')
         add_legend(axes[0],sub); fig.tight_layout(); plt.show()"""))
+
+# ===================== CELL: Best survey per class header =====================
+cells.append(md(r"""## 10.5 Best Survey Per Class: Fit Reconstruction
+
+For each survey class (S1–S4), the survey with the smallest $|z_{\beta_p}|$
+is selected. The Bayesian fit is reconstructed from fresh MCMC posterior
+samples, showing:
+- **Left**: $\log M$ (centered) vs $\log(X_{\mathrm{H_2O}})$ with posterior trend + 68% credible band
+- **Right**: Star Metallicity (centered) vs $\log(X_{\mathrm{H_2O}})$ with posterior trend + 68% credible band
+
+A table of planet names for each best survey follows."""))
+
+# ===================== CELL: Best survey per class fit plots =====================
+cells.append(code(r"""# --- Select best survey per class (smallest |z_beta_p|) ---
+df_best_sel = df_results[(df_results['model']==PRIMARY)&(df_results['seed']==MCMC_SEEDS[0])].copy()
+df_best_sel['abs_z_beta_p'] = df_best_sel['z_beta_p'].abs()
+best_idx = df_best_sel.groupby('class_label')['abs_z_beta_p'].idxmin()
+best_rows = df_best_sel.loc[best_idx].sort_values('class_label')
+
+# Build lookup: survey_id -> Survey object
+survey_lookup = {sv.survey_id: sv for sv in surveys}
+
+print('Best survey per class (smallest |z_beta_p|):')
+for _, row in best_rows.iterrows():
+    print(f"  {row['class_label']}: Survey {int(row['survey_id'])}, N={int(row['N'])}, z(beta_p)={row['z_beta_p']:+.3f}")
+
+# --- Fit and plot each best survey ---
+for _, row in best_rows.iterrows():
+    sv = survey_lookup[int(row['survey_id'])]
+    df_sv = sv.df
+
+    # Prepare data
+    x_m = df_sv['logM'].to_numpy(float)
+    x_s = df_sv['Star Metallicity'].to_numpy(float)
+    y = df_sv['log(X_H2O)'].to_numpy(float)
+    el_p = df_sv['uncertainty_lower'].to_numpy(float)
+    eh_p = df_sv['uncertainty_upper'].to_numpy(float)
+    yerr = np.clip(0.5*(np.abs(el_p)+np.abs(eh_p)), 1e-6, None)
+    el_s = df_sv['Star Metallicity Error Lower'].to_numpy(float)
+    eh_s = df_sv['Star Metallicity Error Upper'].to_numpy(float)
+    xerr_s = np.clip(0.5*(np.abs(el_s)+np.abs(eh_s)), 1e-6, None)
+
+    # Fit
+    mkw_best = prepare_model_kwargs(df_sv, USE_LOG_SPACE)
+    idata_best = fit_model(met_model_full, mkw_best, MCMC_SEEDS[0],
+                           DRAWS, TUNE, TARGET_ACCEPT, NUM_CHAINS)
+
+    # Posterior samples (flatten chains)
+    a  = np.asarray(idata_best.posterior['alpha_p']).reshape(-1)
+    bp = np.asarray(idata_best.posterior['beta_p']).reshape(-1)
+    bs = np.asarray(idata_best.posterior['beta_s']).reshape(-1)
+
+    # Center data
+    x_m_c = x_m - float(np.mean(x_m))
+    x_s_c = x_s - float(np.mean(x_s))
+
+    # Grids
+    m_grid = np.linspace(np.min(x_m_c), np.max(x_m_c), 250)
+    s_grid = np.linspace(np.min(x_s_c), np.max(x_s_c), 250)
+
+    # Conditional trends
+    mu_m = a[:, None] + bp[:, None] * m_grid[None, :]
+    mu_s = a[:, None] + bs[:, None] * s_grid[None, :]
+
+    m_med = np.median(mu_m, axis=0)
+    m_lo  = np.quantile(mu_m, 0.16, axis=0)
+    m_hi  = np.quantile(mu_m, 0.84, axis=0)
+
+    s_med = np.median(mu_s, axis=0)
+    s_lo  = np.quantile(mu_s, 0.16, axis=0)
+    s_hi  = np.quantile(mu_s, 0.84, axis=0)
+
+    # --- 2-panel figure ---
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), constrained_layout=True)
+    fig.suptitle(
+        rf'Survey {sv.survey_id}  |  {sv.class_label}  |  N={sv.n}  |  '
+        rf'$z(\beta_p)={row["z_beta_p"]:+.3f}$', fontsize=12)
+
+    # Left: mass trend
+    ax = axes[0]
+    ax.errorbar(x_m_c, y, yerr=yerr, fmt='o', ms=4, alpha=0.85, capsize=2, lw=0.9,
+                color=CLS_CLR.get(sv.class_label, 'C0'))
+    ax.plot(m_grid, m_med, 'k-', lw=1.5, label='Posterior median')
+    ax.fill_between(m_grid, m_lo, m_hi, alpha=0.25, color='grey', label='68% CI')
+    ax.set_xlabel(r'$\log M$ (centered)')
+    ax.set_ylabel(r'$\log(X_{\mathrm{H_2O}})$')
+    ax.legend(fontsize=7, frameon=False)
+    ax.minorticks_on()
+
+    # Right: stellar metallicity trend
+    ax = axes[1]
+    ax.errorbar(x_s_c, y, yerr=yerr, xerr=xerr_s, fmt='o', ms=4, alpha=0.85,
+                capsize=2, lw=0.9, color=CLS_CLR.get(sv.class_label, 'C0'))
+    ax.plot(s_grid, s_med, 'k-', lw=1.5, label='Posterior median')
+    ax.fill_between(s_grid, s_lo, s_hi, alpha=0.25, color='grey', label='68% CI')
+    ax.set_xlabel(r'Star Metallicity (centered)')
+    ax.set_ylabel(r'$\log(X_{\mathrm{H_2O}})$')
+    ax.legend(fontsize=7, frameon=False)
+    ax.minorticks_on()
+
+    plt.show()"""))
+
+# ===================== CELL: Planet name table =====================
+cells.append(code(r"""# --- Planet name table for best surveys ---
+print('=' * 80)
+print('PLANET NAMES IN BEST SURVEYS (one per class, smallest |z_beta_p|)')
+print('=' * 80)
+
+latex_rows_all = []
+for _, row in best_rows.iterrows():
+    sv = survey_lookup[int(row['survey_id'])]
+    names = sorted(sv.df['Planet Name'].tolist())
+    cls = row['class_label']
+    sid = int(row['survey_id'])
+    n = int(row['N'])
+    z_val = row['z_beta_p']
+
+    print(f"\n--- {cls}: Survey {sid} (N={n}, z(beta_p)={z_val:+.3f}) ---")
+    for i, name in enumerate(names):
+        print(f"  {i+1:3d}. {name}")
+
+    latex_rows_all.append({
+        'Class': cls,
+        'Survey': sid,
+        r'$N$': n,
+        r'$z(\beta_p)$': f'${z_val:+.3f}$',
+        'Planets': ', '.join(names),
+    })
+
+print('\n\n--- LaTeX table ---')
+latex_df = pd.DataFrame(latex_rows_all)
+print(latex_df.to_latex(index=False, escape=False,
+      column_format='clcc' + 'p{10cm}',
+      caption='Best-calibrated survey per class (smallest $|z_{\\beta_p}|$) with planet names.',
+      label='tab:best_surveys'))"""))
 
 # ===================== CELL: Hier header =====================
 cells.append(md(r"""## 11. Hierarchical MetModel Extension
