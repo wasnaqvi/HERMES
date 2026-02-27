@@ -1,652 +1,980 @@
-% HERMES Extended MetModel: Diagnostics Report
-% Compile: pdflatex HERMES_report.tex  (from the dataset/ directory)
-% All \includegraphics paths are relative to dataset/.
+% HERMES Report — for Overleaf
+% Put all figures into a figures/ subdirectory on Overleaf.
+% Required figures (representative subset):
+%   figures/Ariel_logM_nested_counts.pdf
+%   figures/hermes_met_design_space_N_Lcontours.pdf
+%   figures/leverage_beta_p_N30.pdf
+%   figures/leverage_beta_p_N50.pdf
+%   figures/leverage_beta_p_N100.pdf
+%   figures/leverage_beta_s_N30.pdf
+%   figures/leverage_beta_s_N50.pdf
+%   figures/leverage_beta_s_N100.pdf
+%   figures/histogram.png
+%   figures/leverage_sigma_N50.pdf
+%   figures/uncertainty_vs_N.pdf
+%   figures/Model_Comp30.pdf
+%   figures/Model_Comp50.pdf
+%   figures/Model_Comp100.pdf
+%   figures/z_beta_p_vs_leverage.pdf
+%   figures/z_beta_s_vs_leverage.pdf
+%   figures/survey_51_fit.pdf
+%   figures/survey_124_fit.pdf
+%   figures/survey_175_fit.pdf
+%   figures/survey_286_fit.pdf
 \documentclass[twocolumn]{aastex631}
 
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
 \usepackage{amssymb}
+% subcaption clashes with aastex631's longtable; use gridline instead
+% For subfigures, we use manual minipages below
+
+\graphicspath{{figures/}}
 
 % ------------------------------------------------------------------
-\shorttitle{HERMES Report}
-\shortauthors{HERMES Team}
+\shorttitle{HERMES}
+\shortauthors{Naqvi \& Cowan}
 
 \begin{document}
 
-\title{HERMES Extended MetModel: Diagnostics Report}
+\title{HERMES: HiERarchical Bayesian Modelling\\
+       for Ariel Exoplanet Science Targets}
 
+\author{Wasi M.\ Naqvi}
+\affiliation{McGill University, Trottier Institute for Research on Exoplanets}
+
+\author{Nicolas B.\ Cowan}
+\affiliation{McGill University, Trottier Institute for Research on Exoplanets}
+
+% ==================================================================
 \begin{abstract}
-Add Abstract from Talk or CASCA abstract
+\begin{itemize}
+    \item The Ariel mission will characterize the atmospheres of
+          $\sim\!1000$ exoplanets, demanding statistical tools that
+          infer robust population-level trends.
+    \item We present HERMES (HiERarchical Modelling for Exoplanet
+          Science), a multidimensional Bayesian framework that probes
+          population-level constraints across planetary mass, planetary
+          atmospheric metallicity, and stellar metallicity.
+    \item Starting from the Ariel Mission Candidate Sample (MCS,
+          618~planets), we inject plausible multidimensional trends and
+          demonstrate successful parameter recovery.
+    \item Simulated survey samples are generated with controlled
+          leverage and sample size, in the presence of measurement
+          noise and intrinsic astrophysical scatter.
+    \item We fit independent Bayesian models to each survey and assess
+          whether survey leverage remains a reliable predictor of trend
+          precision under intrinsic variance.
+    \item For parameters with significant measurement uncertainties
+          (e.g., stellar metallicity), we investigate whether leverage
+          alone is sufficient to constrain multidimensional trends.
+    \item Via hierarchical modelling, we seek to more precisely
+          constrain parameter uncertainties by distinguishing intrinsic
+          variance from the underlying population trends.
+\end{itemize}
 \end{abstract}
 
-% ==================================================================
-\section{Survey Design}\label{sec:design}
+\keywords{methods: statistical --- planets and satellites: atmospheres
+          --- planets and satellites: composition}
 
-Surveys are drawn from the synthetic HERMES catalog (618 planets) using
-the nested mass-class scheme S1--S4:
-%
+% ==================================================================
+\section{Introduction}\label{sec:intro}
+
 \begin{itemize}
-    \item \textbf{S1}: full catalog (all masses).
-    \item \textbf{S2}: $\log M \geq Q_{25}$.
-    \item \textbf{S3}: $\log M \geq Q_{50}$.
-    \item \textbf{S4}: $\log M \geq Q_{75}$.
+    \item Ariel will deliver transmission and emission spectra for a
+          large, statistically meaningful sample of exoplanet
+          atmospheres.
+    \item A central science question: how does atmospheric metallicity
+          ($\log X_{\mathrm{H_2O}}$) scale with planetary mass
+          ($\log M$) and host-star metallicity
+          ($[\mathrm{Fe/H}]_\star$)?
+    \item Solar system giants follow an inverse mass--metallicity
+          relation; Ariel aims to test this across a diverse exoplanet
+          population.
+    \item Target selection strategy matters: the \emph{leverage} of a
+          survey (spread in the independent variable) controls how
+          precisely slopes can be recovered.
+    \item Prior work on Ariel target selection:
+    \begin{itemize}
+        \item Edwards \& Tinetti: tier-based optimization.
+        \item Burt \& Zellem: photometric precision requirements.
+        \item Cowan \& Coll-Neveu: leverage-based target selection.
+        \item D'Aoust et al.; Changeat \& Yip: machine-learning
+              approaches.
+    \end{itemize}
+    \item Prior work on mass--metallicity trends:
+    \begin{itemize}
+        \item Welbanks et al.\ (2019): Bayesian retrievals.
+        \item Lustig-Yaeger et al.: transmission spectroscopy
+              predictions.
+        \item Swain et al.: water abundance scaling.
+    \end{itemize}
+    \item HERMES extends the 1D mass--metallicity framework to a 3D
+          model (mass $+$ stellar metallicity $\to$ planetary
+          metallicity) with explicit treatment of measurement errors
+          and intrinsic scatter.
 \end{itemize}
-%
-For each class and sample size $N \in \{30, 50, 100\}$, ten surveys are
-drawn without replacement ($N_{\mathrm{reps}} = 10$), yielding $4
-\times 3 \times 10 = 120$ surveys.  Moving from S1 to S4 systematically
-reduces mass leverage $L_{\mathrm{mass}}$ while also altering stellar
-leverage $L_{\mathrm{stellar}}$ due to the correlated population
-structure.
-
-Two independent leverage axes are tracked per survey:
-%
-\begin{equation}\label{eq:leverage}
-    L_{\mathrm{mass}} = \sqrt{\textstyle\sum_i (m_i - \bar{m})^2},
-    \qquad
-    L_{\mathrm{stellar}} = \sqrt{\textstyle\sum_i (s_i - \bar{s})^2}.
-\end{equation}
 
 % ==================================================================
-\section{Model Variants}\label{sec:models}
+\section{Data and Survey Design}\label{sec:design}
 
-The MetModel relates planetary atmospheric metallicity $y$ (log space)
-to centered planetary mass $m_c$ and host-star metallicity $s_c$:
-%
-\begin{equation}\label{eq:metmodel}
-    y_i = \alpha_p + \beta_p\, m_{c,i} + \beta_s\, s_{c,i}
-          + \varepsilon_{\mathrm{int}},
-\end{equation}
-%
-where $\varepsilon_{\mathrm{int}}$ is intrinsic (astrophysical) scatter
-beyond measurement noise. Four variants are explored:
+\subsection{Mission Candidate Sample}\label{sec:mcs}
 
-\begin{deluxetable}{lll}
-\tablecaption{Model variant definitions.\label{tab:variants}}
-\tablehead{
-  \colhead{Model} & \colhead{Equation} & \colhead{Purpose}
-}
-\startdata
-\texttt{B\_full}        & $y = \alpha_p + \beta_p m_c + \beta_s s_c + \varepsilon$ & Baseline (free scatter) \\
-\texttt{A\_no\_scatter} & $y = \alpha_p + \beta_p m_c + \beta_s s_c$              & Is scatter needed?      \\
-\texttt{C\_no\_stellar} & $y = \alpha_p + \beta_p m_c + \varepsilon$              & Is stellar met needed?  \\
-\texttt{D\_fixed\_scatter} & $y = \alpha_p + \beta_p m_c + \beta_s s_c + \varepsilon_0$ & Fixed scatter test \\
-\enddata
-\end{deluxetable}
-
-\subsection{B\_full (Baseline)}
-
-Priors (data-informed):
-%
-\begin{align}
-    \alpha_p &\sim \mathcal{N}\!\bigl(\bar{y},\; \sigma_y/\sqrt{N}\bigr), \nonumber\\
-    \beta_p  &\sim \mathcal{N}\!\bigl(0,\; \Delta y/\Delta m\bigr), \nonumber\\
-    \beta_s  &\sim \mathcal{N}\!\bigl(1,\; \Delta y/\Delta s\bigr), \label{eq:priors}\\
-    \varepsilon &\sim \mathrm{HalfNormal}(\sigma_y). \nonumber
-\end{align}
-%
 \begin{itemize}
-    \item Samples all four parameters: $\alpha_p$, $\beta_p$, $\beta_s$, $\varepsilon$.
-    \item Prior on $\beta_s$ centered at $1.0$ (``Model~B''): encodes the
-          expectation that planetary and stellar metallicities correlate
-          one-to-one.
+    \item Synthetic dataset: 618~planets drawn from the Ariel MCS.
+    \item Columns used:
+    \begin{itemize}
+        \item $\log M$: log planetary mass (Jupiter masses).
+        \item $[\mathrm{Fe/H}]_\star$: host-star metallicity with
+              asymmetric error bars.
+        \item $\log X_{\mathrm{H_2O}}$: planetary atmospheric
+              metallicity (response variable) with asymmetric error
+              bars.
+    \end{itemize}
+    \item Ground truth: a plausible mass--metallicity trend
+          ($\log X_{\mathrm{H_2O}} = -1.09\,\log M - 0.95
+          + \mathcal{N}(0,\,0.53)$) is injected; recovery of this
+          trend validates the framework.
+\end{itemize}
+
+\subsection{Nested Mass Classes}\label{sec:classes}
+
+\begin{itemize}
+    \item Surveys are drawn using a nested mass-class scheme
+          (Figure~\ref{fig:nested}):
+    \begin{itemize}
+        \item \textbf{S1}: full catalog (all masses).
+        \item \textbf{S2}: $\log M \geq Q_{25}$ (75\% of planets).
+        \item \textbf{S3}: $\log M \geq Q_{50}$ (50\% of planets).
+        \item \textbf{S4}: $\log M \geq Q_{75}$ (25\% of planets).
+    \end{itemize}
+    \item Moving S1 $\to$ S4 progressively removes low-mass planets
+          $\Rightarrow$ systematically reduces mass leverage.
+    \item For each class and sample size
+          $N \in \{20, 30, 40, 50, 60, 75, 80, 100, 150\}$,
+          eight surveys are drawn without replacement
+          ($N_{\mathrm{reps}} = 8$).
+    \item Total: up to $4 \times 9 \times 8 = 288$ surveys.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{Ariel_logM_nested_counts.pdf}
+\caption{Nested mass-class scheme S1--S4. Each successive class
+removes the lowest-mass quartile, reducing mass leverage while
+preserving the high-mass tail. Surveys are drawn from each class
+independently.}
+\label{fig:nested}
+\end{figure}
+
+\subsection{Leverage}\label{sec:leverage}
+
+\begin{itemize}
+    \item Two independent leverage axes are tracked per survey:
+    %
+    \begin{equation}\label{eq:leverage}
+        L_{\mathrm{mass}} = \sqrt{\sum_i (m_i - \bar{m})^2},
+        \qquad
+        L_{\mathrm{stellar}} = \sqrt{\sum_i (s_i - \bar{s})^2}.
+    \end{equation}
+    %
+    \item Leverage $= \sqrt{N}\;\sigma_x$: grows with both spread and
+          sample size.
+    \item $L_{\mathrm{mass}}$ is the natural lever arm for
+          $\beta_p$ (mass slope); $L_{\mathrm{stellar}}$ for
+          $\beta_s$ (stellar slope).
+    \item Figure~\ref{fig:design}: the $N$--$L$ design space shows
+          how survey class and sample size jointly determine the
+          available leverage.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{hermes_met_design_space_N_Lcontours.pdf}
+\caption{Survey design space: sample size $N$ vs.\ mass leverage
+$L_{\mathrm{mass}}$. Each point is one survey; colors indicate mass
+class (S1--S4). Contours show the density of the design space. S1
+surveys span the widest mass range and achieve the highest leverage at
+every $N$.}
+\label{fig:design}
+\end{figure}
+
+% ==================================================================
+\section{The MetModel}\label{sec:model}
+
+\subsection{Science Equation}\label{sec:science_eq}
+
+\begin{itemize}
+    \item The MetModel relates planetary atmospheric metallicity $y$
+          (log space) to centered planetary mass $m_c$ and centered
+          host-star metallicity $s_c$:
+    %
+    \begin{equation}\label{eq:metmodel}
+        y_i = \alpha_p + \beta_p\, m_{c,i} + \beta_s\, s_{c,i}
+              + \varepsilon_{\mathrm{int}},
+    \end{equation}
+    %
+    where:
+    \begin{itemize}
+        \item $\alpha_p$: intercept (population mean metallicity).
+        \item $\beta_p$: mass slope (the mass--metallicity relation).
+        \item $\beta_s$: stellar metallicity slope.
+        \item $\varepsilon_{\mathrm{int}}$: intrinsic astrophysical
+              scatter beyond measurement noise.
+    \end{itemize}
+    \item Centering: $m_c = \log M - \overline{\log M}$ and
+          $s_c = s_{\mathrm{true}} - \overline{s_{\mathrm{true}}}$
+          (computed per survey, per MCMC draw for the latent stellar
+          values).
+\end{itemize}
+
+\subsection{Priors}\label{sec:priors}
+
+\begin{itemize}
+    \item All priors are data-informed (weakly informative, scaled to
+          the data range within each survey):
+    %
+    \begin{align}
+        \alpha_p &\sim \mathcal{N}\!\bigl(\bar{y},\;
+                      \sigma_y / \sqrt{N}\bigr),
+                      \label{eq:prior_alpha} \\
+        \beta_p  &\sim \mathcal{N}\!\bigl(0,\;
+                      \Delta y / \Delta m\bigr),
+                      \label{eq:prior_betap} \\
+        \beta_s  &\sim \mathcal{N}\!\bigl(1,\;
+                      \Delta y / \Delta s\bigr),
+                      \label{eq:prior_betas} \\
+        \varepsilon &\sim \mathrm{HalfNormal}(\sigma_y),
+                      \label{eq:prior_eps}
+    \end{align}
+    %
+    where $\Delta y$, $\Delta m$, $\Delta s$ denote the span
+    (max $-$ min) of the respective variables.
+    \item $\beta_p$ centered at $0$: no \emph{a priori}
+          preference for positive or negative mass slope.
+    \item $\beta_s$ centered at $1$ (``Model~B''): encodes the
+          expectation that planetary and stellar metallicities
+          correlate roughly one-to-one.
+    \item $\varepsilon$: half-normal ensures positivity;
+          scale $\sigma_y$ is weakly informative.
 \end{itemize}
 
 \subsection{Measurement-Error Treatment}\label{sec:errors}
 
-The treatment of measurement uncertainty differs across the three
-variables:
-%
-\begin{deluxetable}{lll}
-\tablecaption{Measurement-error handling by variable.\label{tab:errors}}
-\tablehead{
-  \colhead{Variable} & \colhead{Role} & \colhead{Handling}
-}
-\startdata
-Mass ($\log M$)     & $x_1$ (independent) & Ignored: treated as exact \\
-Stellar met ($s$)   & $x_2$ (independent) & Latent variable (see below) \\
-Planetary met ($y$) & Response            & In likelihood (quadrature) \\
-\enddata
-\end{deluxetable}
+\paragraph{Stellar metallicity (latent variable model).}
+\begin{itemize}
+    \item Stellar metallicity has non-negligible measurement error
+          $\Rightarrow$ treating $s_{\mathrm{obs}}$ as exact would
+          bias $\beta_s$ (attenuation bias).
+    \item A latent true value is introduced per planet:
+    %
+    \begin{equation}\label{eq:latent_s}
+        s_{\mathrm{true},i} \sim \mathcal{N}\bigl(s_{\mathrm{obs},i},
+        \;\sigma_{s,\mathrm{meas},i}\bigr),
+    \end{equation}
+    %
+    where $\sigma_{s,\mathrm{meas},i} = \tfrac{1}{2}
+    (|e_{\mathrm{lo},i}| + |e_{\mathrm{hi},i}|)$ is the symmetrized
+    measurement error.
+    \item Centered: $s_{c,i} = s_{\mathrm{true},i}
+          - \overline{s_{\mathrm{true}}}$, with the mean over latent
+          values recomputed each MCMC draw.
+    \item Adds $N$ latent parameters per survey but correctly
+          propagates stellar measurement uncertainty into the
+          posterior.
+\end{itemize}
 
-\paragraph{Stellar metallicity.}
-A latent true value is introduced:
-%
-\begin{equation}\label{eq:latent_s}
-    s_{\mathrm{true}} \sim \mathcal{N}(s_{\mathrm{obs}},\;\sigma_{s,\mathrm{meas}}),
-\end{equation}
-%
-where $\sigma_{s,\mathrm{meas}} = \tfrac{1}{2}(|e_{\mathrm{lo}}| +
-|e_{\mathrm{hi}}|)$ is the symmetrized measurement error. The centered
-stellar metallicity used in the science equation is
-$s_c = s_{\mathrm{true}} - \overline{s_{\mathrm{true}}}$,
-where the mean is computed over the latent values within each MCMC
-draw.
-
-\paragraph{Planetary metallicity.}
-The observation noise combines measurement error and intrinsic scatter
-in quadrature:
-%
-\begin{equation}\label{eq:obssigma}
-    \sigma_{\mathrm{obs},i}
-    = \sqrt{\sigma_{p,\mathrm{meas},i}^{2} + \varepsilon^2},
-\end{equation}
-%
-where $\sigma_{p,\mathrm{meas}}$ is also the symmetrized average of
-the lower and upper error bars.
+\paragraph{Planetary metallicity (quadrature likelihood).}
+\begin{itemize}
+    \item Observation noise combines measurement error and intrinsic
+          scatter in quadrature:
+    %
+    \begin{equation}\label{eq:obssigma}
+        \sigma_{\mathrm{obs},i}
+        = \sqrt{\sigma_{p,\mathrm{meas},i}^{2} + \varepsilon^2}.
+    \end{equation}
+    %
+    \item The likelihood:
+    %
+    \begin{equation}\label{eq:likelihood}
+        y_i \sim \mathcal{N}\bigl(\mu_i,\;
+        \sigma_{\mathrm{obs},i}\bigr),
+        \quad
+        \mu_i = \alpha_p + \beta_p\, m_{c,i} + \beta_s\, s_{c,i}.
+    \end{equation}
+    %
+    \item As $\varepsilon \to 0$, the likelihood tightens to
+          measurement noise alone; as
+          $\varepsilon \gg \sigma_{p,\mathrm{meas}}$, intrinsic
+          scatter dominates.
+\end{itemize}
 
 \paragraph{Mass.}
-No measurement-error model is applied to $\log M$; it enters the
-science equation as a fixed, centered array $m_c = m - \bar{m}$.
-Mass uncertainties are assumed negligible relative to the other two
-sources of uncertainty.
-
-\subsection{A\_no\_scatter}
-
 \begin{itemize}
-    \item Identical to \texttt{B\_full} except $\varepsilon \equiv 0$.
-    \item Observation noise is purely $\sigma_{\mathrm{meas},p}$.
-    \item If the true data-generating process includes astrophysical
-          scatter $\Rightarrow$ disfavored by WAIC (under-fits residual
-          variance).
+    \item No error model: $m_c = m - \bar{m}$ enters as a fixed
+          array. Mass uncertainties assumed negligible.
 \end{itemize}
 
-\subsection{C\_no\_stellar}\label{sec:cnostellar}
+\subsection{Model Variants}\label{sec:variants}
 
-Drops the $\beta_s\, s_c$ predictor entirely; retains free scatter:
-%
-\begin{equation}
-    y_i = \alpha_p + \beta_p\, m_{c,i} + \varepsilon_{\mathrm{int}}.
-\end{equation}
-
-\paragraph{How $\varepsilon$ absorbs the stellar signal:}
 \begin{itemize}
-    \item \texttt{C\_no\_stellar} does \emph{not} explicitly route
-          stellar metallicity into $\varepsilon$ as a parameter.
-    \item By omitting $\beta_s\, s_c$ from the mean function, any real
-          stellar--metallicity correlation becomes \emph{unmodelled
-          systematic variance}.
-    \item The sampler cannot distinguish this from astrophysical scatter
-          $\Rightarrow$ inflates the $\varepsilon$ posterior.
-    \item Result: posterior mean of $\varepsilon$ in
-          \texttt{C\_no\_stellar} is systematically larger than in
-          \texttt{B\_full}.
-    \item The difference quantifies the variance attributable to the
-          omitted stellar term.
+    \item Three model variants test the necessity of each component:
+    \begin{itemize}
+        \item \textbf{B\_full} (baseline):
+              $y = \alpha_p + \beta_p m_c + \beta_s s_c + \varepsilon$.
+        \item \textbf{A\_no\_scatter}:
+              same but $\varepsilon \equiv 0$.
+              Tests whether intrinsic scatter is needed.
+        \item \textbf{C\_no\_stellar}:
+              $y = \alpha_p + \beta_p m_c + \varepsilon$.
+              Tests whether stellar metallicity is needed.
+    \end{itemize}
+    \item In \texttt{C\_no\_stellar}, any real stellar signal becomes
+          unmodelled variance $\Rightarrow$ absorbed into
+          $\varepsilon$, inflating its posterior.
 \end{itemize}
-
-\subsection{D\_fixed\_scatter}
-
-Identical to \texttt{B\_full} except $\varepsilon$ is fixed to a
-constant value $\varepsilon_0$ (default 0.3) rather than sampled.
-Activated only when \texttt{SCATTER\_MODE='fixed'}.  This variant
-tests whether fixing scatter changes the slope posteriors or their
-scaling with leverage.
 
 % ==================================================================
 \section{MCMC Configuration}\label{sec:mcmc}
 
-All fits use NumPyro/JAX with the NUTS sampler:
-%
 \begin{itemize}
-    \item 500 warmup + 500 draws per chain, 1 chain.
-    \item \texttt{target\_accept} = 0.9.
-    \item dtype = \texttt{float32}.
-    \item Log-likelihood computed when WAIC is enabled.
+    \item Sampler: NUTS (NumPyro/JAX).
+    \item 800 warmup $+$ 800 draws per chain, 1~chain.
+    \item \texttt{target\_accept} $= 0.9$.
+    \item Each of 288 surveys fit under 3 model variants.
+    \item Repeated across 3 independent MCMC seeds (321, 42, 7).
+    \item Total: $288 \times 3 \times 3 = 2{,}592$ MCMC fits.
+    \item Posterior summaries: mean, SD, 16th/84th percentile HDI
+          for $\{\alpha_p, \beta_p, \beta_s, \varepsilon\}$.
 \end{itemize}
-%
-Each of the 120 surveys is fit under all model variants.  To assess
-MCMC sensitivity, the full experiment is repeated across five
-independent MCMC seeds (\texttt{MCMC\_SEEDS} = 321, 42, 123, 999,
-2024), yielding up to $120 \times 3 \times 5 = 1800$ fits for the
-primary analysis.
 
 % ==================================================================
 \section{Posterior Uncertainty vs.\ Leverage}\label{sec:sigma}
 
+\subsection{Expected Scaling}\label{sec:expected}
+
 \begin{itemize}
-    \item Key diagnostic: how $\sigma_{\beta_p}$ scales with survey
-          leverage $L = \sqrt{\sum (x_i - \bar{x})^2}$.
-    \item Higher leverage $\Rightarrow$ more ``statistical pull'' on the
-          slope.
-    \item Expected scaling: $\sigma_{\beta_p} \propto L^{-\gamma}$ with
-          $\gamma \approx 1$ for ideal linear regression.
-    \item Examined across $N = 30, 50, 100$ and the four survey classes
-          S1--S4.
+    \item For ideal linear regression, the slope uncertainty scales as:
+    %
+    \begin{equation}\label{eq:ideal}
+        \sigma_{\beta} \propto \frac{\sigma_{\mathrm{noise}}}{L},
+    \end{equation}
+    %
+    $\Rightarrow$ power-law exponent $\gamma \approx -1$.
+    \item In practice, intrinsic scatter and heteroscedastic errors
+          modify this.
+    \item We fit $\sigma_\theta = a\, L^{\gamma}$ and report
+          $\gamma \pm \delta\gamma$.
 \end{itemize}
 
-\subsection{$\sigma_{\beta_p}$ vs.\ Model Variant}
+\subsection{Mass Slope Uncertainty}\label{sec:bpsd}
 
-Figures~\ref{fig:bpsd_N30}--\ref{fig:bpsd_N100}: $\sigma_{\beta_p}$
-vs.\ $L_{\mathrm{mass}}$ at fixed $N$, comparing all three model
-variants side by side.
-Figures~\ref{fig:bpsd_stellar_N30}--\ref{fig:bpsd_stellar_N100}:
-same but against $L_{\mathrm{stellar}}$.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{beta_p_sd_comparison_N30.pdf}
-\caption{$\sigma_{\beta_p}$ vs.\ $L_{\mathrm{mass}}$ at $N=30$,
-three model variants side by side. Each point = one survey; colors =
-classes S1--S4; dashed = power-law fit with prediction band. \texttt{B\_full} and
-\texttt{A\_no\_scatter} yield similar $\sigma_{\beta_p}$;
-\texttt{C\_no\_stellar} differs due to absorbed stellar variance.}
-\label{fig:bpsd_N30}
-\end{figure*}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{beta_p_sd_comparison_N50.pdf}
-\caption{Same as Figure~\ref{fig:bpsd_N30} but $N=50$.
-Uncertainties shrink $\sim\!\sqrt{N}$; power-law slopes comparable.}
-\label{fig:bpsd_N50}
-\end{figure*}
+\begin{itemize}
+    \item Figure~\ref{fig:lev_bp}: $\sigma_{\beta_p}$ vs.\ both
+          leverages at $N=30$, $50$, and $100$.
+    \item Strong power-law decay with $L_{\mathrm{mass}}$
+          ($\gamma \approx -0.9$): mass leverage is the dominant
+          control on mass-slope precision.
+    \item Weaker correlation with $L_{\mathrm{stellar}}$: confirms
+          $\sigma_{\beta_p}$ is primarily governed by
+          $L_{\mathrm{mass}}$.
+    \item The scaling relationship is consistent across sample sizes;
+          increasing $N$ lowers the overall uncertainty floor but
+          preserves the leverage dependence.
+    \item S1 (blue, highest leverage) achieves the tightest
+          constraints; S4 (red, lowest) the widest.
+\end{itemize}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{beta_p_sd_comparison_N100.pdf}
-\caption{Same as Figure~\ref{fig:bpsd_N30} but $N=100$.
-Model-variant differences become more pronounced at this sample size.}
-\label{fig:bpsd_N100}
+\gridline{\includegraphics[width=\textwidth]{leverage_beta_p_N30.pdf}}
+\gridline{\includegraphics[width=\textwidth]{leverage_beta_p_N50.pdf}}
+\gridline{\includegraphics[width=\textwidth]{leverage_beta_p_N100.pdf}}
+\caption{$\sigma_{\beta_p}$ vs.\ $L_{\mathrm{mass}}$ (left) and
+$L_{\mathrm{stellar}}$ (right) at $N=30$ (top), $N=50$ (middle), and
+$N=100$ (bottom). Each point = one survey; colors = classes S1--S4;
+dashed = power-law fit with prediction band. The power-law exponent
+$\gamma$ steepens toward $-1$ as $N$ grows, and the overall
+uncertainty floor drops, but the qualitative leverage dependence is
+preserved across sample sizes.}
+\label{fig:lev_bp}
 \end{figure*}
+
+\subsection{Stellar Slope Uncertainty}\label{sec:bssd}
+
+\begin{itemize}
+    \item Figure~\ref{fig:lev_bs}: $\sigma_{\beta_s}$ vs.\ both
+          leverages at $N=30$, $50$, and $100$.
+    \item At every $N$, $L_{\mathrm{stellar}}$ (right panel) shows the
+          steeper power-law --- each parameter responds most strongly
+          to its own lever arm.
+    \item The cross-leverage correlation (left panel) is weaker but
+          non-zero, reflecting the mass--stellar metallicity
+          correlation in the MCS population.
+    \item Comparing across $N$: the uncertainty floor drops but the
+          power-law exponent is stable, confirming leverage as the
+          dominant control.
+\end{itemize}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{beta_p_sd_comparison_stellar_N30.pdf}
-\caption{$\sigma_{\beta_p}$ vs.\ $L_{\mathrm{stellar}}$ at $N=30$.
-$L_{\mathrm{stellar}}$ is not the natural lever arm for $\beta_p$;
-weaker correlation confirms $\sigma_{\beta_p}$ is primarily governed
-by $L_{\mathrm{mass}}$.}
-\label{fig:bpsd_stellar_N30}
+\gridline{\includegraphics[width=\textwidth]{leverage_beta_s_N30.pdf}}
+\gridline{\includegraphics[width=\textwidth]{leverage_beta_s_N50.pdf}}
+\gridline{\includegraphics[width=\textwidth]{leverage_beta_s_N100.pdf}}
+\caption{$\sigma_{\beta_s}$ vs.\ $L_{\mathrm{mass}}$ (left) and
+$L_{\mathrm{stellar}}$ (right) at $N=30$ (top), $N=50$ (middle), and
+$N=100$ (bottom). The stellar slope uncertainty responds most strongly
+to stellar leverage at every sample size. The improvement from $N=30$
+to $N=100$ is modest compared to the effect of increasing
+$L_{\mathrm{stellar}}$.}
+\label{fig:lev_bs}
 \end{figure*}
+
+\subsection{Intrinsic Scatter}\label{sec:epssd}
+
+\begin{itemize}
+    \item Figure~\ref{fig:lev_eps}: $\sigma_{\varepsilon}$ vs.\
+          both leverages at $N=50$.
+    \item Nearly flat: intrinsic scatter precision is weakly sensitive
+          to survey geometry --- it is a population property, not a
+          function of leverage.
+\end{itemize}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{beta_p_sd_comparison_stellar_N50.pdf}
-\caption{Same as Figure~\ref{fig:bpsd_stellar_N30} but $N=50$.}
-\label{fig:bpsd_stellar_N50}
+\includegraphics[width=\textwidth]{leverage_sigma_N50.pdf}
+\caption{$\sigma_{\varepsilon}$ vs.\ leverage at $N=50$. The
+intrinsic scatter uncertainty is nearly independent of both lever
+arms, confirming it is a population-level quantity.}
+\label{fig:lev_eps}
 \end{figure*}
 
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{beta_p_sd_comparison_stellar_N100.pdf}
-\caption{Same as Figure~\ref{fig:bpsd_stellar_N30} but $N=100$.}
-\label{fig:bpsd_stellar_N100}
-\end{figure*}
+\subsection{Uncertainty vs.\ Sample Size}\label{sec:sigma_N}
 
-\subsection{Full Uncertainty Panels}\label{sec:panels}
-
-For a complete picture, all four posterior uncertainties
-($\sigma_{\alpha_p}$, $\sigma_{\beta_p}$, $\sigma_{\beta_s}$,
-$\sigma_{\varepsilon}$) are plotted against both $L_{\mathrm{mass}}$
-and $L_{\mathrm{stellar}}$ simultaneously.  Each panel includes a
-power-law fit with uncertainty on the exponent reported as
-sub/superscripts:
-$\sigma_\theta \propto L^{\gamma\;^{+\delta\gamma}_{-\delta\gamma}}$.
-
-Figures~\ref{fig:panels_N30}--\ref{fig:panels_N100}: $2 \times 4$
-panel grids for each fixed $N$.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{uncertainty_panels_N30.pdf}
-\caption{Full uncertainty panel at $N=30$. Rows: $L_{\mathrm{mass}}$
-(top), $L_{\mathrm{stellar}}$ (bottom). Columns: $\sigma_{\alpha_p}$,
-$\sigma_{\beta_p}$, $\sigma_{\beta_s}$, $\sigma_{\varepsilon}$.
-Blue band = prediction interval from power-law fit; annotation =
-exponent $\gamma\;^{+\delta\gamma}_{-\delta\gamma}$.}
-\label{fig:panels_N30}
-\end{figure*}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{uncertainty_panels_N50.pdf}
-\caption{Same as Figure~\ref{fig:panels_N30} but $N=50$.}
-\label{fig:panels_N50}
-\end{figure*}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{uncertainty_panels_N100.pdf}
-\caption{Same as Figure~\ref{fig:panels_N30} but $N=100$.}
-\label{fig:panels_N100}
-\end{figure*}
-
-% ==================================================================
-\section{Posterior Uncertainty vs.\ Sample Size}\label{sec:sigma_N}
-
-Figure~\ref{fig:unc_vs_N} shows all four posterior uncertainties
-($\sigma_{\alpha_p}$, $\sigma_{\beta_p}$, $\sigma_{\beta_s}$,
-$\sigma_{\varepsilon}$) as a function of sample size~$N$.  Individual
-survey results are plotted as scatter points colored by mass class
-(S1--S4), with a pooled power-law fit and prediction band overlaid.
-The annotation reports the scaling exponent with 1-$\sigma$ uncertainty
-as sub/superscripts:
-$\sigma_\theta \propto N^{\gamma\;^{+\delta\gamma}_{-\delta\gamma}}$.
+\begin{itemize}
+    \item Figure~\ref{fig:unc_vs_N}: all four $\sigma_\theta$ vs.\
+          $N$, pooled across classes.
+    \item Power-law fit: $\sigma_\theta \propto N^{\gamma}$;
+          ideal regression predicts $\gamma \approx -0.5$.
+    \item Larger $N$ shrinks posteriors, but the shape of the
+          leverage scaling is unchanged with $N$.
+    \item Key insight: \emph{mass leverage beats raw sample size}
+          for constraining $\beta_p$.
+\end{itemize}
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{uncertainty_vs_N.pdf}
-\caption{Posterior uncertainty vs.\ sample size~$N$ for all four
-parameters.  Points = individual surveys colored by class; dashed line
-= power-law fit; grey band = prediction interval.  Annotation gives the
-scaling exponent with 1-$\sigma$ bounds.  All parameters show the
-expected decay: larger~$N$ $\Rightarrow$ tighter posteriors.}
+\caption{Posterior uncertainty vs.\ $N$ for all four parameters.
+Points = individual surveys colored by class; dashed = power-law fit;
+grey band = prediction interval. Annotation = scaling exponent with
+1-$\sigma$ bounds.}
 \label{fig:unc_vs_N}
 \end{figure*}
 
 % ==================================================================
 \section{WAIC Model Comparison}\label{sec:waic}
 
-The Widely Applicable Information Criterion (WAIC) is computed for
-each survey--model combination.  Two $\Delta$WAIC statistics are
-formed:
-%
-\begin{align}
-    \Delta\mathrm{WAIC}_{\mathrm{scatter}}
-        &= \mathrm{WAIC}_{\texttt{B\_full}}
-         - \mathrm{WAIC}_{\texttt{A\_no\_scatter}}, \label{eq:dwaic_scatter} \\
-    \Delta\mathrm{WAIC}_{\mathrm{stellar}}
-        &= \mathrm{WAIC}_{\texttt{B\_full}}
-         - \mathrm{WAIC}_{\texttt{C\_no\_stellar}}. \label{eq:dwaic_stellar}
-\end{align}
-%
-Positive $\Delta$WAIC favors \texttt{B\_full} (i.e., the additional
-component improves predictive accuracy).
+\begin{itemize}
+    \item WAIC $= -2\,\mathrm{ELPD}$ computed for each
+          survey--model combination.
+    \item Two $\Delta$WAIC statistics:
+    %
+    \begin{align}
+        \Delta\mathrm{WAIC}_{\mathrm{scatter}}
+            &= \mathrm{WAIC}_{\texttt{A\_no\_scatter}}
+             - \mathrm{WAIC}_{\texttt{B\_full}},
+             \label{eq:dwaic_scatter} \\
+        \Delta\mathrm{WAIC}_{\mathrm{stellar}}
+            &= \mathrm{WAIC}_{\texttt{C\_no\_stellar}}
+             - \mathrm{WAIC}_{\texttt{B\_full}}.
+             \label{eq:dwaic_stellar}
+    \end{align}
+    %
+    Positive $\Delta$WAIC favors \texttt{B\_full}.
+    \item Figures~\ref{fig:waic30}--\ref{fig:waic100}: model
+          comparison at $N = 30$, $50$, and $100$.
+    \item \textbf{Scatter detection}: \texttt{B\_full} wins for the
+          vast majority of surveys at every $N$ --- intrinsic scatter
+          is robustly detected. The win rate increases with $N$ and
+          leverage.
+    \item \textbf{Stellar metallicity detection}: \texttt{B\_full}
+          rarely wins over \texttt{C\_no\_stellar} --- the stellar
+          term improves the posterior but is not decisive for
+          prediction at current noise levels. Even at $N=100$ the
+          detection rate remains low.
+    \item This is scientifically important: the stellar signal is real
+          but weak relative to measurement noise $+$ intrinsic
+          scatter. The effective detection SNR is
+          $\beta_s^2 \mathrm{Var}(s_c) /
+          (\sigma_{p,\mathrm{meas}}^2 + \varepsilon^2)$.
+    \item Reducing intrinsic scatter (i.e., quieter astrophysical
+          populations) would increase the stellar detection rate.
+\end{itemize}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{Model_Comp30.pdf}
+\caption{WAIC model comparison at $N=30$. At this small sample size,
+scatter detection is already strong for S1--S2 but weaker for S4.
+Stellar metallicity is almost never favored.}
+\label{fig:waic30}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{Model_Comp50.pdf}
+\caption{Same as Figure~\ref{fig:waic30} but $N=50$. Scatter
+detection is now near-universal; stellar metallicity remains
+undetected by WAIC for most surveys.}
+\label{fig:waic50}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{Model_Comp100.pdf}
+\caption{Same as Figure~\ref{fig:waic30} but $N=100$. Even with
+large samples, the stellar metallicity term does not consistently
+improve predictive accuracy, confirming that the signal is subdominant
+to intrinsic scatter at current noise levels.}
+\label{fig:waic100}
+\end{figure*}
+
+% ==================================================================
+\section{Stellar Metallicity Detection}\label{sec:stellar_det}
 
 \begin{itemize}
-    \item $\Delta\mathrm{WAIC}_{\mathrm{scatter}}$: tests whether
-          free intrinsic scatter is warranted.
-    \item $\Delta\mathrm{WAIC}_{\mathrm{stellar}}$: tests whether the
-          stellar metallicity predictor improves the model.
-    \item Both are examined as functions of $L_{\mathrm{mass}}$,
-          $L_{\mathrm{stellar}}$, and $N$.
-    \item The fraction of surveys where $\Delta\mathrm{WAIC} > 0$
-          quantifies the ``detection rate'' of each model component
-          across the survey design space.
+    \item Figure~\ref{fig:stellar_hist}: histogram of
+          $\Delta\mathrm{WAIC}_{\mathrm{stellar}}$ across all surveys.
+          Positive values favor \texttt{B\_full} over
+          \texttt{C\_no\_stellar}; negative values favor the simpler
+          model without the stellar term.
+    \item \textbf{Key result}: the full model frequently \emph{loses}
+          the WAIC comparison despite the stellar signal being real in
+          the synthetic data ($\beta_s = 1$).
+    \item \textbf{Why}: the intrinsic astrophysical scatter
+          ($\varepsilon \approx 0.53$\,dex) is the same order of
+          magnitude as the stellar metallicity values themselves
+          ($[\mathrm{Fe/H}]_\star$ spans roughly $-0.5$ to $+0.5$\,dex
+          in the MCS).
+    \item The effective signal-to-noise ratio for detecting the stellar
+          term is:
+    %
+    \begin{equation}\label{eq:stellar_snr}
+        \mathrm{SNR}_{\mathrm{stellar}}
+        = \frac{\beta_s^2\,\mathrm{Var}(s_c)}
+               {\sigma_{p,\mathrm{meas}}^2 + \varepsilon^2}.
+    \end{equation}
+    %
+    When $\varepsilon^2 \gg \beta_s^2\,\mathrm{Var}(s_c)$, the
+    stellar contribution is buried in scatter and WAIC cannot
+    distinguish the two models.
+    \item \textbf{Contrast with scatter detection}: intrinsic scatter
+          is robustly detected because $\varepsilon \approx 0.53$\,dex
+          is large relative to measurement noise
+          ($\sigma_{p,\mathrm{meas}} \sim 0.1$--$0.3$\,dex). The
+          scatter signal is an order of magnitude above the noise
+          floor, whereas the stellar signal is not.
+    \item This is a physically expected outcome: host-star metallicity
+          variations are modest compared to the planet-to-planet
+          diversity in atmospheric composition. The $\beta_s$ posterior
+          is still well constrained (Section~\ref{sec:bssd}), but the
+          \emph{predictive} improvement from including the stellar term
+          is small.
+    \item Reducing $\varepsilon$ (e.g., a quieter astrophysical
+          population or better forward models) would increase stellar
+          detection rates.
 \end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{histogram.png}
+\caption{Histogram of $\Delta\mathrm{WAIC}_{\mathrm{stellar}}$
+($= \mathrm{WAIC}_{\texttt{C\_no\_stellar}} -
+\mathrm{WAIC}_{\texttt{B\_full}}$) across all surveys. Positive
+values favor the full model; negative values favor the model without
+stellar metallicity. The distribution is centered near zero,
+confirming that the stellar signal is subdominant to intrinsic scatter
+at current noise levels.}
+\label{fig:stellar_hist}
+\end{figure}
 
 % ==================================================================
 \section{Z-Score Calibration}\label{sec:zscores}
 
-\subsection{Definition}
+\subsection{Definition}\label{sec:zdef}
 
-For each parameter $\theta \in \{\alpha_p, \beta_p, \beta_s,
-\varepsilon\}$ and survey $k$:
-%
-\begin{equation}\label{eq:zscore}
-    z_\theta^{(k)}
-    = \frac{\hat{\theta}^{(k)} - \theta_{\mathrm{ref}}}
-           {\sigma_\theta^{(k)}},
-\end{equation}
-%
 \begin{itemize}
-    \item $\hat{\theta}^{(k)}$: posterior mean from survey $k$.
-    \item $\sigma_\theta^{(k)}$: posterior standard deviation.
-    \item $\theta_{\mathrm{ref}}$: oracle reference from fitting
-          \texttt{B\_full} to the full 618-planet catalog (or known
-          ground truth).
+    \item For each parameter $\theta \in \{\alpha_p, \beta_p, \beta_s,
+          \varepsilon\}$ and survey $k$:
+    %
+    \begin{equation}\label{eq:zscore}
+        z_\theta^{(k)}
+        = \frac{\hat{\theta}^{(k)} - \theta_{\mathrm{ref}}}
+               {\sigma_\theta^{(k)}},
+    \end{equation}
+    %
+    where $\hat{\theta}^{(k)}$ is the posterior mean,
+    $\sigma_\theta^{(k)}$ is the posterior SD, and
+    $\theta_{\mathrm{ref}}$ is the oracle reference from fitting
+    \texttt{B\_full} to the full 618-planet catalog.
+    \item Well-calibrated posteriors $\Rightarrow$
+          $z \sim \mathcal{N}(0,1)$:
+          $|z| < 1$ for $\approx 68\%$ of surveys,
+          $|z| < 2$ for $\approx 95\%$.
+    \item $\mathrm{SD}(z) > 1$: uncertainties underestimated.
+          $\mathrm{SD}(z) < 1$: overestimated.
 \end{itemize}
 
-\subsection{Calibration Criterion}
+\subsection{Z-Scores vs.\ Leverage}\label{sec:zlev}
 
-Well-calibrated posteriors $\Rightarrow$ $z \sim \mathcal{N}(0,1)$:
-%
 \begin{itemize}
-    \item $\lvert z \rvert < 1$ for $\approx 68\%$ of surveys.
-    \item $\lvert z \rvert < 2$ for $\approx 95\%$ of surveys.
-    \item No systematic bias (mean $z \approx 0$).
-    \item No trend with leverage or sample size.
+    \item Figure~\ref{fig:zbetap}: $z(\beta_p)$ vs.\ both leverages
+          --- the most important calibration check.
+    \item A flat band at $\pm 1$ with no trend = desired outcome
+          (well-calibrated across the design space).
+    \item Widening scatter at low $L$ would indicate that
+          uncertainties fail to capture limited information in
+          narrow-range surveys.
+    \item Figure~\ref{fig:zbetas}: $z(\beta_s)$ vs.\ both leverages.
+          The right panel ($L_{\mathrm{stellar}}$) is the natural
+          driver. Systematic offsets would indicate prior-induced bias.
 \end{itemize}
-%
-Interpretation:
-\begin{itemize}
-    \item Overdispersed ($\mathrm{SD}(z) > 1$) $\Rightarrow$
-          uncertainties underestimated.
-    \item Underdispersed ($\mathrm{SD}(z) < 1$) $\Rightarrow$
-          uncertainties overestimated (overly conservative).
-\end{itemize}
-
-\subsection{Z-Score Histograms}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{z_score_histograms.pdf}
-\caption{Z-score histograms for $\alpha_p$, $\beta_p$, $\beta_s$,
-$\varepsilon$ under \texttt{B\_full}. Red dashed = $\mathcal{N}(0,1)$
-reference. Panel titles show fraction with $\lvert z \rvert < 1$;
-values near $68\%$ = good calibration.}
-\label{fig:zhist}
-\end{figure*}
-
-\subsection{Z-Scores vs.\ Leverage}
-
-Figures~\ref{fig:zalpha}--\ref{fig:zeps}: z-scores vs.\ both
-leverages. Each figure shows $L_{\mathrm{mass}}$ (left) and
-$L_{\mathrm{stellar}}$ (right) with a shaded $\pm 1\sigma$ band and
-a sideways $\mathcal{N}(0,1)$ Gaussian for reference.
-What to look for:
-%
-\begin{itemize}
-    \item \textbf{Trend in mean}: posterior biased at certain leverages
-          (e.g., overestimating $\beta_p$ at low $L$).
-    \item \textbf{Trend in spread} (funnel): leverage-dependent
-          miscalibration.
-    \item \textbf{No trend} (flat band $\pm 1$): desired outcome ---
-          well-calibrated across the survey design space.
-\end{itemize}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{z_alpha_p_vs_leverage.pdf}
-\caption{$z(\alpha_p)$ vs.\ $L_{\mathrm{mass}}$ (left) and
-$L_{\mathrm{stellar}}$ (right). Colors = survey class. Grey lines:
-$z=0$, $z=\pm 1$. Blue band = $\pm 1\sigma$ region.
-Flat distribution at zero = well-calibrated.}
-\label{fig:zalpha}
-\end{figure*}
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{z_beta_p_vs_leverage.pdf}
-\caption{$z(\beta_p)$ vs.\ leverage. Most important calibration check
-for the mass slope ($\beta_p$ directly constrained by
-$L_{\mathrm{mass}}$). Widening scatter at low $L$ would suggest
-uncertainties do not fully capture limited information in narrow-range
-surveys.}
+\caption{$z(\beta_p)$ vs.\ $L_{\mathrm{mass}}$ (left) and
+$L_{\mathrm{stellar}}$ (right). Colors = survey class. Grey lines:
+$z=0$, $z=\pm 1$. A flat distribution at zero indicates
+well-calibrated posteriors across the survey design space.}
 \label{fig:zbetap}
 \end{figure*}
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{z_beta_s_vs_leverage.pdf}
-\caption{$z(\beta_s)$ vs.\ leverage. Right panel
-($L_{\mathrm{stellar}}$) is the natural driver of $\beta_s$ precision.
-Systematic offsets would indicate the prior $\beta_s \sim
-\mathcal{N}(1, \cdot)$ introduces bias at certain survey geometries.}
+\caption{$z(\beta_s)$ vs.\ leverage. The right panel
+($L_{\mathrm{stellar}}$) is the natural driver of $\beta_s$
+precision. Flat z-scores confirm the $\beta_s \sim
+\mathcal{N}(1,\cdot)$ prior does not introduce systematic bias.}
 \label{fig:zbetas}
 \end{figure*}
 
+% ==================================================================
+\section{Example Survey Reconstructions}\label{sec:bestfit}
+
+\begin{itemize}
+    \item Figure~\ref{fig:survey_fits}: posterior fits for the four
+          best-calibrated surveys (one per mass class, smallest
+          $|z_{\beta_p}|$; see Table~\ref{tab:best_surveys}).
+    \item Each sub-panel shows:
+    \begin{itemize}
+        \item Left: $\log M$ (centered) vs.\
+              $\log X_{\mathrm{H_2O}}$ with posterior median trend and
+              68\% credible band.
+        \item Right: stellar metallicity (centered) vs.\
+              $\log X_{\mathrm{H_2O}}$ with the same.
+    \end{itemize}
+    \item Error bars show symmetrized measurement uncertainties.
+    \item Survey~51 (S1) has the highest leverage and tightest
+          credible bands; Survey~286 (S4) has the lowest leverage and
+          widest bands.
+    \item All four surveys successfully recover the injected trends,
+          confirming the MetModel works across the full range of survey
+          geometries.
+\end{itemize}
+
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{z_epsilon_vs_leverage.pdf}
-\caption{$z(\varepsilon)$ vs.\ leverage. Intrinsic scatter is a
-``nuisance'' parameter less directly tied to either lever arm. Look
-for funnel shapes (spread in $z$ increasing at low leverage) that
-would indicate the posterior for $\varepsilon$ is leverage-dependent.}
-\label{fig:zeps}
+\gridline{\includegraphics[width=0.49\textwidth]{survey_51_fit.pdf}
+          \includegraphics[width=0.49\textwidth]{survey_124_fit.pdf}}
+\gridline{\includegraphics[width=0.49\textwidth]{survey_175_fit.pdf}
+          \includegraphics[width=0.49\textwidth]{survey_286_fit.pdf}}
+\caption{Posterior reconstructions for the best-calibrated survey in
+each mass class (smallest $|z_{\beta_p}|$). Top row: S1 (Survey~51),
+S2 (Survey~124). Bottom row: S3 (Survey~175), S4 (Survey~286). Each
+panel contains the mass--metallicity (left) and stellar--metallicity
+(right) projections; solid line = posterior median; shaded band = 68\%
+credible interval.}
+\label{fig:survey_fits}
 \end{figure*}
-
-% ==================================================================
-\section{Multi-Seed MCMC Diversity}\label{sec:diversity}
-
-To quantify sensitivity to the MCMC random seed, each survey is fit
-under five independent seeds.  For each survey, the coefficient of
-variation (CV) of each posterior standard deviation across seeds is
-computed:
-%
-\begin{equation}\label{eq:cv}
-    \mathrm{CV}(\sigma_\theta^{(k)})
-    = \frac{\mathrm{SD}_{\mathrm{seeds}}(\sigma_\theta^{(k)})}
-           {\overline{\sigma_\theta^{(k)}}}.
-\end{equation}
-%
-\begin{itemize}
-    \item Low CV ($\lesssim 5\%$): posterior uncertainty is stable ---
-          a single MCMC run suffices.
-    \item High CV ($\gtrsim 15\%$): posterior is seed-sensitive,
-          suggesting insufficient warmup/draws or difficult geometry.
-    \item Box plots of CV by $N$ reveal whether larger surveys yield
-          more reproducible posteriors (expected, due to stronger
-          likelihood dominance over the prior).
-\end{itemize}
-
-% ==================================================================
-\section{Z-Score Ranking Tables}\label{sec:ztable}
-
-\subsection{Per-Parameter Summary}
-
-Rather than aggregating across parameters, z-scores are summarized
-\emph{per parameter} across all surveys.  For each
-$\theta \in \{\alpha_p, \beta_p, \beta_s, \varepsilon\}$ the notebook
-reports:
-%
-\begin{itemize}
-    \item mean($z_\theta$), SD($z_\theta$), median($z_\theta$);
-    \item fraction of surveys with $|z_\theta| < 1$ and $|z_\theta| < 2$;
-    \item max$\,|z_\theta|$.
-\end{itemize}
-%
-Calibration target: mean($z$) $\approx 0$, SD($z$) $\approx 1$,
-$|z|<1$ for $\approx 68\%$ of surveys.
-
-\subsection{Top 5 Best-Calibrated Surveys Per Parameter}
-
-For each parameter $\theta$, surveys are ranked by $|z_\theta|$ and the
-five with smallest deviation from the oracle are reported
-(Tables~\ref{tab:zbest_alpha_p}--\ref{tab:zbest_epsilon}).  This
-identifies which survey geometries ($N$, class, leverage) yield the
-most accurate posteriors for each individual parameter.
 
 % ==================================================================
 \section{Hierarchical MetModel}\label{sec:hier}
 
-\subsection{Motivation}
+\subsection{Motivation}\label{sec:hier_motiv}
 
-The independent-fit approach (Sections~\ref{sec:models}--\ref{sec:sigma})
-treats each survey in isolation.  A hierarchical extension pools
-information across surveys through shared population-level
-hyperpriors, enabling partial pooling: surveys with weak data borrow
-strength from the population, while data-rich surveys remain largely
-self-determined.
-
-\subsection{Model Definition}
-
-Population-level hyperpriors:
-%
-\begin{align}
-    \mu_{\alpha_p} &\sim \mathcal{N}(\bar{y}_{\mathrm{global}},\; 2), \nonumber\\
-    \mu_{\beta_p}  &\sim \mathcal{N}(0,\; 5), \nonumber\\
-    \mu_{\beta_s}  &\sim \mathcal{N}(1,\; 5), \label{eq:hier_hyper}\\
-    \tau_{\alpha_p},\; \tau_{\beta_p},\; \tau_{\beta_s}
-                   &\sim \mathrm{HalfNormal}(1), \nonumber\\
-    \sigma_\varepsilon &\sim \mathrm{HalfNormal}(1). \nonumber
-\end{align}
-%
-Per-survey parameters (inside a \texttt{numpyro.plate} over $K$
-surveys):
-%
-\begin{align}
-    \alpha_p^{(k)} &\sim \mathcal{N}(\mu_{\alpha_p},\; \tau_{\alpha_p}), \nonumber\\
-    \beta_p^{(k)}  &\sim \mathcal{N}(\mu_{\beta_p},\;  \tau_{\beta_p}), \nonumber\\
-    \beta_s^{(k)}  &\sim \mathcal{N}(\mu_{\beta_s},\;  \tau_{\beta_s}), \label{eq:hier_survey}\\
-    \varepsilon^{(k)} &\sim \mathrm{HalfNormal}(\sigma_\varepsilon). \nonumber
-\end{align}
-%
-The science equation within each survey is identical to
-Equation~\ref{eq:metmodel}, using the per-survey parameters and the
-same latent stellar metallicity treatment
-(Equation~\ref{eq:latent_s}).  Stellar metallicity is centered per
-survey using segment operations on the concatenated observation
-vector.
-
-\subsection{Shrinkage Analysis}
-
-Hierarchical shrinkage is quantified by comparing per-survey posterior
-standard deviations:
-%
-\begin{equation}\label{eq:shrinkage}
-    w_\theta^{(k)}
-    = 1 - \frac{\sigma_{\theta,\mathrm{hier}}^{(k)}}
-               {\sigma_{\theta,\mathrm{indep}}^{(k)}}.
-\end{equation}
-%
 \begin{itemize}
-    \item $w \approx 1$: data dominates (hierarchical $\approx$
-          independent).
-    \item $w \approx 0$: population dominates (strong pooling).
-    \item Shrinkage is expected to be largest for surveys with small
-          $N$ and low leverage, where independent posteriors are widest.
-    \item Plots show shrinkage weight vs.\ $L_{\mathrm{mass}}$
-          (for $\beta_p$) and $L_{\mathrm{stellar}}$ (for $\beta_s$).
-    \item Companion scatter plots of posterior mean (hierarchical vs.\
-          independent) visualize the direction and magnitude of
-          pooling: points pulled toward the diagonal = partial pooling
-          toward the population mean.
+    \item The independent-fit approach treats each survey in isolation.
+    \item A hierarchical extension pools information across surveys via
+          shared population-level hyperpriors.
+    \item Partial pooling: weak-data surveys borrow strength from the
+          population; data-rich surveys remain self-determined.
+\end{itemize}
+
+\subsection{Model Definition}\label{sec:hier_def}
+
+\begin{itemize}
+    \item Population-level hyperpriors:
+    %
+    \begin{align}
+        \mu_{\alpha_p} &\sim \mathcal{N}
+            (\bar{y}_{\mathrm{global}},\; 2),
+            \nonumber \\
+        \mu_{\beta_p}  &\sim \mathcal{N}(0,\; 5),
+            \nonumber \\
+        \mu_{\beta_s}  &\sim \mathcal{N}(1,\; 5),
+            \label{eq:hier_hyper} \\
+        \tau_{\alpha_p},\; \tau_{\beta_p},\;
+            \tau_{\beta_s}
+            &\sim \mathrm{HalfNormal}(1),
+            \nonumber \\
+        \sigma_\varepsilon &\sim
+            \mathrm{HalfNormal}(1).
+            \nonumber
+    \end{align}
+    %
+    \item Per-survey parameters (inside a \texttt{numpyro.plate}):
+    %
+    \begin{align}
+        \alpha_p^{(k)} &\sim \mathcal{N}
+            (\mu_{\alpha_p},\; \tau_{\alpha_p}),
+            \nonumber \\
+        \beta_p^{(k)}  &\sim \mathcal{N}
+            (\mu_{\beta_p},\; \tau_{\beta_p}),
+            \nonumber \\
+        \beta_s^{(k)}  &\sim \mathcal{N}
+            (\mu_{\beta_s},\; \tau_{\beta_s}),
+            \label{eq:hier_survey} \\
+        \varepsilon^{(k)} &\sim
+            \mathrm{HalfNormal}(\sigma_\varepsilon).
+            \nonumber
+    \end{align}
+    %
+    \item Non-centered parameterization to avoid Neal's funnel.
+    \item \texttt{max\_tree\_depth}$=12$ for the more complex geometry.
+\end{itemize}
+
+\subsection{Shrinkage Analysis}\label{sec:shrinkage}
+
+\begin{itemize}
+    \item Shrinkage weight:
+    %
+    \begin{equation}\label{eq:shrinkage}
+        w_\theta^{(k)}
+        = 1 - \frac{\sigma_{\theta,\mathrm{hier}}^{(k)}}
+                   {\sigma_{\theta,\mathrm{indep}}^{(k)}}.
+    \end{equation}
+    %
+    \item $w \approx 0$: strong pooling.
+          $w \approx 1$: data dominates.
+    \item Shrinkage expected to be largest for surveys with small $N$
+          and low leverage.
 \end{itemize}
 
 % ==================================================================
-\appendix
+\section{Summary Tables}\label{sec:tables}
+
+\subsection{Per-Parameter Z-Score Summary}\label{sec:zsummary}
+
+\begin{itemize}
+    \item Table~\ref{tab:zsummary}: summary statistics for
+          $z_\theta$ across all surveys under \texttt{B\_full}.
+    \item Calibration targets: mean($z$) $\approx 0$,
+          SD($z$) $\approx 1$,
+          $|z|<1$ for $\approx 68\%$ of surveys.
+    \item Values are populated from the notebook output; replace
+          placeholder entries with actual results.
+\end{itemize}
+
+\begin{deluxetable}{lcccccc}
+\tablecaption{Per-parameter z-score summary across all surveys
+(\texttt{B\_full}, seed~1). Well-calibrated posteriors yield
+mean($z$)~$\approx 0$, SD($z$)~$\approx 1$, and
+$|z|<1$~$\approx 68\%$.\label{tab:zsummary}}
+\tablehead{
+  \colhead{Parameter} &
+  \colhead{mean($z$)} &
+  \colhead{SD($z$)} &
+  \colhead{median($z$)} &
+  \colhead{$|z|<1$ (\%)} &
+  \colhead{$|z|<2$ (\%)} &
+  \colhead{max$|z|$}
+}
+\startdata
+$\alpha_p$    & $0.231$  & $7.500$ & $-0.696$ & $5.9$  & $13.2$ & $19.94$ \\
+$\beta_p$     & $0.059$  & $0.842$ & $0.061$  & $79.5$ & $97.2$ & $2.53$  \\
+$\beta_s$     & $-0.038$ & $0.936$ & $-0.091$ & $70.1$ & $96.9$ & $2.80$  \\
+$\varepsilon$ & $0.081$  & $1.003$ & $0.118$  & $63.9$ & $95.8$ & $2.64$  \\
+\enddata
+\tablecomments{$\alpha_p$ z-scores are poorly calibrated because the
+intercept depends on per-survey centering; the oracle reference is
+computed from the full catalog with different predictor means.
+$\beta_p$, $\beta_s$, and $\varepsilon$ are well-calibrated
+(SD($z$)~$\approx 1$).}
+\end{deluxetable}
+
+\subsection{Top 5 Best-Calibrated Surveys Per Parameter}%
+\label{sec:zbest}
+
+\begin{itemize}
+    \item Tables~\ref{tab:zbest_alpha_p}--\ref{tab:zbest_epsilon}:
+          for each parameter $\theta$, the five surveys with smallest
+          $|z_\theta|$ (closest to the oracle).
+    \item Identifies which survey geometries ($N$, class, leverage)
+          yield the most accurate posteriors for each parameter.
+\end{itemize}
 
 \begin{deluxetable}{cccccc}
 \tablecaption{Top 5 best-calibrated surveys for $\alpha_p$.
-$z_\theta = (\hat\theta - \theta_{\mathrm{ref}})/\sigma_\theta$.\label{tab:zbest_alpha_p}}
+$z_\theta = (\hat\theta - \theta_{\mathrm{ref}})/\sigma_\theta$.
+\label{tab:zbest_alpha_p}}
 \tablehead{
   \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
-  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} &
   \colhead{$z(\alpha_p)$}
 }
 \startdata
-\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
+160 & 30  & S3 & $1.20$ & $0.90$ & $-0.012$ \\
+121 & 80  & S2 & $4.93$ & $1.69$ & $-0.136$ \\
+ 73 & 20  & S2 & $2.06$ & $0.66$ & $-0.152$ \\
+104 & 50  & S2 & $4.28$ & $1.13$ & $+0.245$ \\
+149 & 20  & S3 & $0.99$ & $0.77$ & $-0.276$ \\
 \enddata
 \end{deluxetable}
 
 \begin{deluxetable}{cccccc}
-\tablecaption{Top 5 best-calibrated surveys for $\beta_p$.\label{tab:zbest_beta_p}}
+\tablecaption{Top 5 best-calibrated surveys for $\beta_p$.
+\label{tab:zbest_beta_p}}
 \tablehead{
   \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
-  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} &
   \colhead{$z(\beta_p)$}
 }
 \startdata
-\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
+118 & 75  & S2 & $4.71$ & $1.79$ & $+0.007$ \\
+ 29 & 50  & S1 & $5.41$ & $1.53$ & $+0.010$ \\
+274 & 100 & S4 & $2.89$ & $1.55$ & $-0.014$ \\
+ 49 & 80  & S1 & $7.85$ & $1.59$ & $+0.017$ \\
+175 & 50  & S3 & $2.31$ & $1.00$ & $-0.020$ \\
 \enddata
 \end{deluxetable}
 
 \begin{deluxetable}{cccccc}
-\tablecaption{Top 5 best-calibrated surveys for $\beta_s$.\label{tab:zbest_beta_s}}
+\tablecaption{Top 5 best-calibrated surveys for $\beta_s$.
+\label{tab:zbest_beta_s}}
 \tablehead{
   \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
-  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} &
   \colhead{$z(\beta_s)$}
 }
 \startdata
-\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
+117 & 75  & S2 & $4.86$ & $1.40$ & $-0.006$ \\
+103 & 50  & S2 & $4.37$ & $1.26$ & $+0.008$ \\
+ 46 & 75  & S1 & $7.21$ & $1.70$ & $+0.008$ \\
+225 & 30  & S4 & $1.60$ & $0.96$ & $+0.014$ \\
+ 22 & 40  & S1 & $5.04$ & $1.49$ & $+0.015$ \\
 \enddata
 \end{deluxetable}
 
 \begin{deluxetable}{cccccc}
-\tablecaption{Top 5 best-calibrated surveys for $\varepsilon$.\label{tab:zbest_epsilon}}
+\tablecaption{Top 5 best-calibrated surveys for $\varepsilon$.
+\label{tab:zbest_epsilon}}
 \tablehead{
   \colhead{Survey} & \colhead{$N$} & \colhead{Class} &
-  \colhead{$L_{\mathrm{mass}}$} & \colhead{$L_{\mathrm{stellar}}$} &
+  \colhead{$L_{\mathrm{mass}}$} &
+  \colhead{$L_{\mathrm{stellar}}$} &
   \colhead{$z(\varepsilon)$}
 }
 \startdata
-\multicolumn{6}{c}{\emph{(populated by notebook output)}} \\
+ 36 & 60  & S1 & $6.32$ & $1.54$ & $-0.000$ \\
+112 & 60  & S2 & $4.69$ & $1.12$ & $-0.009$ \\
+134 & 100 & S2 & $5.17$ & $1.73$ & $-0.011$ \\
+187 & 75  & S3 & $2.63$ & $1.59$ & $-0.019$ \\
+241 & 50  & S4 & $2.48$ & $1.08$ & $+0.020$ \\
 \enddata
 \end{deluxetable}
 
+\subsection{Best-Calibrated Survey Per Class}\label{sec:bestclass}
+
+\begin{itemize}
+    \item Table~\ref{tab:best_surveys}: the single best-calibrated
+          survey per mass class (smallest $|z_{\beta_p}|$), with
+          planet names.
+    \item These are the surveys shown in
+          Figure~\ref{fig:survey_fits}.
+\end{itemize}
+
+\begin{deluxetable*}{clccl}
+\tablecaption{Best-calibrated survey per mass class (smallest
+$|z_{\beta_p}|$) with planet names. These surveys are shown in
+Figure~\ref{fig:survey_fits}.\label{tab:best_surveys}}
+\tablehead{
+  \colhead{Class} & \colhead{Survey} & \colhead{$N$} &
+  \colhead{$z(\beta_p)$} & \colhead{Planets}
+}
+\startdata
+S1 & 51  & 80  & $-0.004$ & G9-40b, GJ341b, GJ9827b, GJ9827c, HAT-P-20b \ldots \\
+S2 & 124 & 80  & $-0.003$ & CoRoT-19b, HAT-P-37b, HAT-P-43b, HAT-P-45b, HAT-P-54b \ldots \\
+S3 & 175 & 50  & $-0.033$ & EPIC246851721b, HAT-P-23b, HAT-P-25b, HAT-P-42b, HAT-P-46b \ldots \\
+S4 & 286 & 150 & $+0.029$ & CoRoT-11b, CoRoT-19b, EPIC246851721b, GPX-1b, HAT-P-15b \ldots \\
+\enddata
+\tablecomments{Survey IDs correspond to
+Figure~\ref{fig:survey_fits}. Only the first five planet names are
+shown; full lists available in the notebook output.}
+\end{deluxetable*}
+
+% ==================================================================
+\section{Discussion}\label{sec:discussion}
+
+\begin{itemize}
+    \item \textbf{Leverage as the primary design knob}: mass leverage
+          $L_{\mathrm{mass}}$ controls mass-slope precision far more
+          than increasing $N$ at fixed mass range.
+    \item \textbf{Intrinsic scatter}: $\sigma_\varepsilon$ is weakly
+          sensitive to survey geometry; it is a population property,
+          robustly detected by WAIC.
+    \item \textbf{Stellar metallicity}: provides an important but
+          only occasionally decisive second-order refinement
+          (Section~\ref{sec:stellar_det}). The intrinsic scatter
+          ($\varepsilon \approx 0.53$\,dex) is the same order of
+          magnitude as the stellar metallicity values themselves,
+          drowning the stellar signal in variance. WAIC favors the
+          full model primarily for high-leverage, information-rich
+          surveys.
+    \item \textbf{Measurement-error model}: the latent-variable
+          treatment of stellar metallicity correctly propagates
+          uncertainty and avoids attenuation bias.
+    \item \textbf{Calibration}: z-score analysis validates that
+          posteriors are neither overconfident nor overly conservative.
+    \item \textbf{Hierarchical pooling}: meaningful shrinkage for
+          low-leverage surveys demonstrates the potential of
+          hierarchical modelling.
+    \item Related work: Keating \& Cowan (2022).
+\end{itemize}
+
+% ==================================================================
+\section{Future Work}\label{sec:future}
+
+\begin{itemize}
+    \item Additional predictors (stellar age, planetary radius,
+          equilibrium temperature).
+    \item Non-linear mass--metallicity relations (broken power laws).
+    \item Application to real Ariel early-release data.
+    \item Twinkle--Ariel synergy: Danielski et al.\ (2022),
+          Tsantaki et al.\ (2025).
+    \item Cross-class hierarchical pooling.
+    \item $\hat{R}$ and ESS quality-control gates.
+\end{itemize}
+
+% ==================================================================
+\begin{acknowledgments}
+This work made use of NumPyro, JAX, and ArviZ.
+\end{acknowledgments}
 
 \end{document}

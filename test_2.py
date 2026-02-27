@@ -78,7 +78,7 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
 
     ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$")
     ax.set_ylabel("Count")
-    ax.set_title("Ariel MCS Nested Mass Classes (Counts)")
+    ax.set_title("Ariel MCS Nested Mass Classes for HERMES")
 
     # custom legend (replaces ax.legend())
     add_nested_S_legend(ax)
@@ -88,7 +88,7 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
 
 
 if __name__ == "__main__":
-    hermes = HermesData.from_csv("dataset/hermes_synthetic_data.csv")
+    hermes = HermesData.from_csv("dataset/hermes_synthetic_data_0.3.0.csv")
     sampler = SurveySampler(hermes, rng_seed=42)
 
     fig, ax = plot_logm_nested_counts(sampler, bins=30)
