@@ -1117,6 +1117,259 @@ for ax,param,label in [(axes[0],'beta_p',r'$\beta_p$'),(axes[1],'beta_s',r'$\bet
     ax.set_xlabel(f'{label} (independent)'); ax.set_ylabel(f'{label} (hierarchical)'); ax.minorticks_on()
 add_legend(axes[0],df_comp); fig.tight_layout(); plt.show()"""))
 
+# ===================== CELL: Scatter threshold header =====================
+cells.append(md(r"""## 13. Intrinsic Scatter Threshold: Stellar Metallicity Detection
+
+The synthetic planetary metallicity is generated as:
+
+$$\log(X_{\mathrm{H_2O}}) = -1.09\,\log M - 0.95 + \mathcal{N}(0,\sigma)$$
+
+where $\sigma$ is the intrinsic scatter.  The science question: **at what $\sigma$ does
+the 3D model lose the ability to distinguish stellar metallicity's contribution?**
+
+We compare `B_full` (mass + stellar met + scatter) against `C_no_stellar` (mass + scatter only)
+via WAIC.  A **fixed noise seed** is used: the same unit-normal draws are scaled by each $\sigma$,
+removing inter-scatter sampling noise and isolating the effect of scatter amplitude.
+
+This gives an **upper limit on intrinsic scatter for the Ariel mission**: if the true scatter
+exceeds this threshold, no survey design can reliably detect stellar metallicity."""))
+
+# ===================== CELL: Scatter experiment config =====================
+cells.append(code(r"""# ---------- Scatter threshold experiment configuration ----------
+SCATTER_GRID = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0]
+SCATTER_N_GRID = [20, 30, 50, 80, 100, 150]
+SCATTER_N_REPS = 6
+SCATTER_MCMC_SEEDS = MCMC_SEEDS[:2]
+SCATTER_DRAWS = 600
+SCATTER_TUNE  = 600
+
+n_scat_surveys = len(SCATTER_N_GRID) * 4 * SCATTER_N_REPS
+n_scat_fits = len(SCATTER_GRID) * n_scat_surveys * 2 * len(SCATTER_MCMC_SEEDS)
+print(f'Scatter experiment: {len(SCATTER_GRID)} scatter values x {n_scat_surveys} surveys x 2 models x {len(SCATTER_MCMC_SEEDS)} seeds')
+print(f'Total fits: {n_scat_fits}')"""))
+
+# ===================== CELL: Synthetic data regeneration =====================
+cells.append(code(r"""# Load base dataset — keep logM, stellar met columns; regenerate log(X_H2O) per sigma
+base_df = pd.read_csv('hermes_synthetic_data_0.4.0.csv')
+base_logM = base_df['logM'].to_numpy(float)
+
+# Fixed unit-normal noise vector (seed=42) — same draws scaled by each sigma
+_rng_z = np.random.default_rng(42)
+z_fixed = _rng_z.normal(0, 1, size=len(base_df))
+
+def make_synthetic(sigma):
+    df = base_df.copy()
+    df['log(X_H2O)'] = -1.09 * base_logM - 0.95 + sigma * z_fixed
+    return df
+
+print(f'Base dataset: {len(base_df)} planets from hermes_synthetic_data_0.4.0.csv')
+_test = make_synthetic(0.5)
+print(f'Test (sigma=0.5): {len(_test)} rows, log(X_H2O) range: [{_test["log(X_H2O)"].min():.2f}, {_test["log(X_H2O)"].max():.2f}]')"""))
+
+# ===================== CELL: Run scatter experiment =====================
+cells.append(code(r"""import time as _time
+
+scatter_rows = []
+fit_count = 0
+t0 = _time.time()
+
+for sig_idx, sigma in enumerate(SCATTER_GRID):
+    syn_df = make_synthetic(sigma)
+    samp = SurveySampler(syn_df, rng_seed=SURVEY_SEED)
+    scat_surveys = samp.sample_grid(SCATTER_N_GRID, n_reps_per_combo=SCATTER_N_REPS)
+
+    for model_fn, mname in [(met_model_full, 'B_full'), (met_model_no_stellar, 'C_no_stellar')]:
+        for mseed in SCATTER_MCMC_SEEDS:
+            rng = np.random.default_rng(mseed)
+            for sv in scat_surveys:
+                fit_count += 1
+                if fit_count % 100 == 0 or fit_count == n_scat_fits:
+                    elapsed = _time.time() - t0
+                    rate = fit_count / elapsed if elapsed > 0 else 0
+                    eta = (n_scat_fits - fit_count) / rate if rate > 0 else 0
+                    print(f'  [{fit_count}/{n_scat_fits}]  sigma={sigma:.1f}  {mname}  '
+                          f'({elapsed/60:.1f}m elapsed, ~{eta/60:.0f}m left)', flush=True)
+                rs = int(rng.integers(0, 2**32 - 1))
+                mkw = prepare_model_kwargs(sv.df, use_log_space=USE_LOG_SPACE)
+                idata = fit_model(model_fn, mkw, rs, draws=SCATTER_DRAWS, tune=SCATTER_TUNE,
+                                  ta=TARGET_ACCEPT, nchains=NUM_CHAINS, do_ll=True)
+                row = extract_summary(idata)
+                row.update({
+                    'sigma': sigma, 'model': mname, 'seed': mseed,
+                    'survey_id': sv.survey_id, 'class_label': sv.class_label,
+                    'N': sv.n, 'L_mass': sv.leverage('logM'),
+                    'L_stellar': sv.leverage('Star Metallicity'),
+                })
+                try:
+                    w = az.waic(idata)
+                    row['waic'] = float(w.elpd_waic)
+                    row['waic_se'] = float(w.se)
+                except Exception:
+                    row['waic'] = np.nan
+                    row['waic_se'] = np.nan
+                scatter_rows.append(row)
+
+    print(f'  Finished sigma={sigma:.1f}  ({sig_idx+1}/{len(SCATTER_GRID)})')
+
+df_scatter = pd.DataFrame(scatter_rows)
+elapsed_total = _time.time() - t0
+print(f'\nScatter experiment done! {len(df_scatter)} rows in {elapsed_total/60:.1f} min.')
+df_scatter.to_csv('hermes_scatter_threshold_results.csv', index=False)"""))
+
+# ===================== CELL: Compute detection summary =====================
+cells.append(code(r"""# Pivot to get delta_stellar = elpd(B_full) - elpd(C_no_stellar) per survey
+scat_piv = df_scatter.pivot_table(
+    index=['sigma', 'survey_id', 'seed', 'class_label', 'N', 'L_mass', 'L_stellar'],
+    columns='model', values='waic').reset_index()
+scat_piv['delta_stellar'] = scat_piv['B_full'] - scat_piv['C_no_stellar']
+
+# Detection summary by (sigma, N)
+det_summary = scat_piv.groupby(['sigma', 'N']).agg(
+    n_surveys=('delta_stellar', 'count'),
+    frac_detect=('delta_stellar', lambda x: (x > 0).mean()),
+    median_delta=('delta_stellar', 'median'),
+    mean_delta=('delta_stellar', 'mean'),
+).reset_index()
+
+# Overall detection fraction by sigma (aggregated across N)
+det_by_sigma = scat_piv.groupby('sigma').agg(
+    frac_detect=('delta_stellar', lambda x: (x > 0).mean()),
+    median_delta=('delta_stellar', 'median'),
+    mean_delta=('delta_stellar', 'mean'),
+).reset_index()
+
+# Identify threshold: sigma where frac_detect drops below 80% (linear interpolation)
+frac_arr = det_by_sigma['frac_detect'].values
+sig_arr  = det_by_sigma['sigma'].values
+threshold_sigma = np.nan
+for i in range(len(frac_arr) - 1):
+    if frac_arr[i] >= 0.8 and frac_arr[i+1] < 0.8:
+        # Linear interpolation
+        threshold_sigma = sig_arr[i] + (0.8 - frac_arr[i]) / (frac_arr[i+1] - frac_arr[i]) * (sig_arr[i+1] - sig_arr[i])
+        break
+if np.isnan(threshold_sigma):
+    if (frac_arr >= 0.8).all():
+        threshold_sigma = sig_arr[-1]
+        print(f'Detection fraction stays >= 80% across all scatter values tested.')
+    elif (frac_arr < 0.8).all():
+        threshold_sigma = sig_arr[0]
+        print(f'Detection fraction is < 80% even at lowest scatter.')
+
+print(f'\n=== Detection threshold (80% detection rate): sigma ~ {threshold_sigma:.2f} dex ===\n')
+
+print('Detection fraction by sigma (aggregated across N):')
+print(det_by_sigma.to_string(index=False))
+
+print('\n\nDetection summary by (sigma, N):')
+for sig in SCATTER_GRID:
+    sub = det_summary[det_summary['sigma'] == sig]
+    print(f'\n  sigma = {sig}:')
+    print(sub[['N', 'frac_detect', 'median_delta']].to_string(index=False))"""))
+
+# ===================== CELL: Detection curve plot =====================
+cells.append(code(r"""# ==================== THE MONEY PLOT ====================
+# Detection fraction vs intrinsic scatter, one line per N
+
+fig, ax = plt.subplots(figsize=(9, 5.5))
+
+# One line per N value
+N_colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(SCATTER_N_GRID)))
+for i, N0 in enumerate(SCATTER_N_GRID):
+    sub = det_summary[det_summary['N'] == N0].sort_values('sigma')
+    ax.plot(sub['sigma'], sub['frac_detect'], 'o-', color=N_colors[i],
+            ms=5, lw=1.8, label=f'N={N0}')
+
+# Aggregated line (bold)
+ax.plot(det_by_sigma['sigma'], det_by_sigma['frac_detect'], 's--', color='black',
+        ms=6, lw=2.2, label='All N (aggregate)', zorder=5)
+
+# Reference lines
+ax.axhline(0.5, color='grey', ls=':', lw=1.0, alpha=0.7)
+ax.axhline(0.8, color='firebrick', ls='--', lw=1.2, alpha=0.7)
+ax.text(SCATTER_GRID[-1]*0.98, 0.81, '80% threshold', ha='right', fontsize=8, color='firebrick')
+ax.text(SCATTER_GRID[-1]*0.98, 0.51, '50% (chance)', ha='right', fontsize=8, color='grey')
+
+# Threshold marker
+if np.isfinite(threshold_sigma):
+    ax.axvline(threshold_sigma, color='firebrick', ls='--', lw=1.2, alpha=0.5)
+    # Shaded regions
+    ax.axvspan(SCATTER_GRID[0], threshold_sigma, alpha=0.06, color='green', zorder=0)
+    ax.axvspan(threshold_sigma, SCATTER_GRID[-1], alpha=0.06, color='red', zorder=0)
+    ax.annotate(
+        rf'Ariel upper limit: $\sigma \approx {threshold_sigma:.2f}$ dex',
+        xy=(threshold_sigma, 0.8), xytext=(threshold_sigma + 0.15, 0.65),
+        fontsize=10, ha='left',
+        arrowprops=dict(arrowstyle='->', color='firebrick', lw=1.2),
+        bbox=dict(boxstyle='round,pad=0.3', fc='lightyellow', ec='firebrick', alpha=0.9))
+
+ax.set_xlabel(r'Intrinsic scatter $\sigma$ (dex)', fontsize=12)
+ax.set_ylabel('Fraction detecting stellar metallicity\n' + r'($\Delta$elpd$_{\mathrm{WAIC}} > 0$)', fontsize=11)
+ax.set_title('At what intrinsic scatter does the 3D model\nlose stellar metallicity detection?', fontsize=13)
+ax.set_xlim(SCATTER_GRID[0] - 0.05, SCATTER_GRID[-1] + 0.05)
+ax.set_ylim(-0.03, 1.05)
+ax.legend(fontsize=8, frameon=False, ncol=2, loc='lower left')
+ax.minorticks_on()
+fig.tight_layout()
+plt.savefig('scatter_threshold_detection_curve.pdf', bbox_inches='tight')
+plt.show()"""))
+
+# ===================== CELL: Heatmap — detection rate by (sigma, N) =====================
+cells.append(code(r"""# Heatmap: detection fraction by (sigma, N)
+heat_piv = det_summary.pivot_table(index='N', columns='sigma', values='frac_detect')
+heat_piv = heat_piv.sort_index(ascending=False)  # largest N on top
+
+fig, ax = plt.subplots(figsize=(10, 4.5))
+im = ax.imshow(heat_piv.values, aspect='auto', cmap='RdYlGn', vmin=0, vmax=1,
+               extent=[0, len(SCATTER_GRID), 0, len(SCATTER_N_GRID)])
+
+# Annotate cells
+for i, N0 in enumerate(reversed(sorted(SCATTER_N_GRID))):
+    for j, sig in enumerate(SCATTER_GRID):
+        val = heat_piv.loc[N0, sig] if (N0 in heat_piv.index and sig in heat_piv.columns) else np.nan
+        if np.isfinite(val):
+            color = 'white' if val < 0.35 or val > 0.85 else 'black'
+            ax.text(j + 0.5, i + 0.5, f'{val:.0%}', ha='center', va='center',
+                    fontsize=8, fontweight='bold', color=color)
+
+ax.set_xticks(np.arange(len(SCATTER_GRID)) + 0.5)
+ax.set_xticklabels([f'{s:.1f}' for s in SCATTER_GRID], fontsize=9)
+ax.set_yticks(np.arange(len(SCATTER_N_GRID)) + 0.5)
+ax.set_yticklabels([str(n) for n in reversed(sorted(SCATTER_N_GRID))], fontsize=9)
+ax.set_xlabel(r'Intrinsic scatter $\sigma$ (dex)', fontsize=11)
+ax.set_ylabel('Sample size N', fontsize=11)
+ax.set_title('Stellar metallicity detection rate by scatter and sample size', fontsize=12)
+
+cbar = fig.colorbar(im, ax=ax, shrink=0.85, label='Detection fraction')
+fig.tight_layout()
+plt.savefig('scatter_threshold_heatmap.pdf', bbox_inches='tight')
+plt.show()"""))
+
+# ===================== CELL: Median delta-WAIC vs scatter =====================
+cells.append(code(r"""# Median delta-WAIC vs scatter, one line per N
+fig, ax = plt.subplots(figsize=(9, 5))
+
+for i, N0 in enumerate(SCATTER_N_GRID):
+    sub = det_summary[det_summary['N'] == N0].sort_values('sigma')
+    ax.plot(sub['sigma'], sub['median_delta'], 'o-', color=N_colors[i],
+            ms=5, lw=1.6, label=f'N={N0}')
+
+# Aggregated
+ax.plot(det_by_sigma['sigma'], det_by_sigma['median_delta'], 's--', color='black',
+        ms=6, lw=2.0, label='All N (aggregate)', zorder=5)
+
+ax.axhline(0, color='k', ls='-', lw=1.0, alpha=0.6)
+ax.fill_between(det_by_sigma['sigma'], 0, ax.get_ylim()[0] if ax.get_ylim()[0] < 0 else -5,
+                alpha=0.04, color='red', zorder=0)
+
+ax.set_xlabel(r'Intrinsic scatter $\sigma$ (dex)', fontsize=12)
+ax.set_ylabel(r'Median $\Delta$elpd$_{\mathrm{WAIC}}$ (full $-$ no stellar)', fontsize=11)
+ax.set_title(r'How the WAIC advantage degrades with increasing scatter', fontsize=13)
+ax.legend(fontsize=8, frameon=False, ncol=2, loc='upper right')
+ax.minorticks_on()
+fig.tight_layout()
+plt.savefig('scatter_threshold_delta_waic.pdf', bbox_inches='tight')
+plt.show()"""))
+
 # ===================== ASSEMBLE NOTEBOOK =====================
 notebook = {
     "nbformat": 4,

@@ -2,6 +2,9 @@
 *.png
 *.pdf
 *.tex
+*.out
+*.aux
+*.log
 results/
 plots/
 src/HierModel.py
