@@ -340,7 +340,7 @@ every $N$.}
 
 \begin{itemize}
     \item Sampler: NUTS (NumPyro/JAX).
-    \item 800 warmup $+$ 800 draws per chain, 1~chain.
+    \item 800 warmup $+$ 800 draws per chain, 4~chain.
     \item \texttt{target\_accept} $= 0.9$.
     \item Each of 288 surveys fit under 3 model variants.
     \item Repeated across 3 independent MCMC seeds (321, 42, 7).
@@ -702,79 +702,6 @@ credible interval.}
 \end{figure*}
 
 % ==================================================================
-\section{Hierarchical MetModel}\label{sec:hier}
-
-\subsection{Motivation}\label{sec:hier_motiv}
-
-\begin{itemize}
-    \item The independent-fit approach treats each survey in isolation.
-    \item A hierarchical extension pools information across surveys via
-          shared population-level hyperpriors.
-    \item Partial pooling: weak-data surveys borrow strength from the
-          population; data-rich surveys remain self-determined.
-\end{itemize}
-
-\subsection{Model Definition}\label{sec:hier_def}
-
-\begin{itemize}
-    \item Population-level hyperpriors:
-    %
-    \begin{align}
-        \mu_{\alpha_p} &\sim \mathcal{N}
-            (\bar{y}_{\mathrm{global}},\; 2),
-            \nonumber \\
-        \mu_{\beta_p}  &\sim \mathcal{N}(0,\; 5),
-            \nonumber \\
-        \mu_{\beta_s}  &\sim \mathcal{N}(1,\; 5),
-            \label{eq:hier_hyper} \\
-        \tau_{\alpha_p},\; \tau_{\beta_p},\;
-            \tau_{\beta_s}
-            &\sim \mathrm{HalfNormal}(1),
-            \nonumber \\
-        \sigma_\varepsilon &\sim
-            \mathrm{HalfNormal}(1).
-            \nonumber
-    \end{align}
-    %
-    \item Per-survey parameters (inside a \texttt{numpyro.plate}):
-    %
-    \begin{align}
-        \alpha_p^{(k)} &\sim \mathcal{N}
-            (\mu_{\alpha_p},\; \tau_{\alpha_p}),
-            \nonumber \\
-        \beta_p^{(k)}  &\sim \mathcal{N}
-            (\mu_{\beta_p},\; \tau_{\beta_p}),
-            \nonumber \\
-        \beta_s^{(k)}  &\sim \mathcal{N}
-            (\mu_{\beta_s},\; \tau_{\beta_s}),
-            \label{eq:hier_survey} \\
-        \varepsilon^{(k)} &\sim
-            \mathrm{HalfNormal}(\sigma_\varepsilon).
-            \nonumber
-    \end{align}
-    %
-    \item Non-centered parameterization to avoid Neal's funnel.
-    \item \texttt{max\_tree\_depth}$=12$ for the more complex geometry.
-\end{itemize}
-
-\subsection{Shrinkage Analysis}\label{sec:shrinkage}
-
-\begin{itemize}
-    \item Shrinkage weight:
-    %
-    \begin{equation}\label{eq:shrinkage}
-        w_\theta^{(k)}
-        = 1 - \frac{\sigma_{\theta,\mathrm{hier}}^{(k)}}
-                   {\sigma_{\theta,\mathrm{indep}}^{(k)}}.
-    \end{equation}
-    %
-    \item $w \approx 0$: strong pooling.
-          $w \approx 1$: data dominates.
-    \item Shrinkage expected to be largest for surveys with small $N$
-          and low leverage.
-\end{itemize}
-
-% ==================================================================
 \section{Summary Tables}\label{sec:tables}
 
 \subsection{Per-Parameter Z-Score Summary}\label{sec:zsummary}
@@ -952,9 +879,6 @@ shown; full lists available in the notebook output.}
           uncertainty and avoids attenuation bias.
     \item \textbf{Calibration}: z-score analysis validates that
           posteriors are neither overconfident nor overly conservative.
-    \item \textbf{Hierarchical pooling}: meaningful shrinkage for
-          low-leverage surveys demonstrates the potential of
-          hierarchical modelling.
     \item Related work: Keating \& Cowan (2022).
 \end{itemize}
 

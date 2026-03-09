@@ -5,7 +5,10 @@
 *.out
 *.aux
 *.log
+*.gif
 results/
 plots/
+dataset/*.tex
 src/HierModel.py
 /dataset/.claude
+.claude/settings.local.json

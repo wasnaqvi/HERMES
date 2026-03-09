@@ -24,9 +24,6 @@ from .Model import (
     _safe_sd,
 )
 
-# ---------------------------------------------------------------------------
-# NumPyro models
-# ---------------------------------------------------------------------------
 
 def _rocky_pooled_model(
     *,
@@ -36,7 +33,7 @@ def _rocky_pooled_model(
     planet_cmf_err: jax.Array,     # (N,) planet CMF uncertainty
     alpha_mu: float,
     alpha_sigma: float,
-    beta_mu: float,                # 1.0 (expect 1:1)
+    beta_mu: float,                # 1.0 (expect 1:1) ??
     beta_sigma: float,
     epsilon_sigma: float,
 ) -> None:
@@ -87,7 +84,6 @@ def _rocky_partial_pooling_model(
     beta    = numpyro.sample("beta", dist.Normal(beta_mu, beta_sigma))
     epsilon = numpyro.sample("epsilon", dist.HalfNormal(epsilon_sigma))
 
-    # --- Planet-level latent true values ---
     with numpyro.plate("planets", n_planets):
         # Latent true stellar CMF per unique planet
         star_cmf_true = numpyro.sample(
@@ -102,8 +98,6 @@ def _rocky_partial_pooling_model(
             "planet_cmf_true",
             dist.Normal(alpha + beta * star_cmf_true, epsilon),
         )
-
-    # --- Observation-level likelihoods ---
     with numpyro.plate("obs", star_cmf_obs.shape[0]):
         # Each survey's stellar CMF measurement
         numpyro.sample(
@@ -119,12 +113,9 @@ def _rocky_partial_pooling_model(
         )
 
 
-# ---------------------------------------------------------------------------
-# Helper: compute data-scaled priors
-# ---------------------------------------------------------------------------
 
 def _compute_priors(planet_cmf: np.ndarray, n: int) -> Dict[str, float]:
-    """Data-scaled prior hyperparameters following HERMES conventions."""
+    """This is a helper function. Data-scaled prior hyperparameters following HERMES conventions."""
     y_mean = float(np.mean(planet_cmf))
     y_sd = _safe_sd(planet_cmf, fallback=0.1)
     return {
@@ -136,9 +127,6 @@ def _compute_priors(planet_cmf: np.ndarray, n: int) -> Dict[str, float]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 class RockyModel:
     """Bayesian CMF regression for rocky exoplanets."""
@@ -146,7 +134,7 @@ class RockyModel:
     def __init__(self, cfg: ModelConfig = ModelConfig()):
         self.cfg = cfg
 
-    # ---- Complete pooling ----
+    # Complete Pooling.
 
     def fit_pooled(self, pooled_df: pd.DataFrame, seed: int = 42) -> az.InferenceData:
         """Fit complete-pooling model. Returns ArviZ InferenceData."""
@@ -180,7 +168,7 @@ class RockyModel:
         )
         return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
-    # ---- Partial pooling ----
+    # Partial Pooling.
 
     def fit_partial_pooling(self, pp_data: dict, seed: int = 42) -> az.InferenceData:
         """Fit hierarchical partial-pooling model. Returns ArviZ InferenceData."""
@@ -222,7 +210,7 @@ class RockyModel:
         )
         return az.from_numpyro(mcmc, log_likelihood=ll) if ll is not None else az.from_numpyro(mcmc)
 
-    # ---- Summary ----
+    # Summary.
 
     def summarize(
         self,
@@ -237,9 +225,6 @@ class RockyModel:
         return pd.DataFrame(rows).set_index("param")
 
 
-# ---------------------------------------------------------------------------
-# Plotting
-# ---------------------------------------------------------------------------
 
 SURVEY_COLORS = {
     "Behmard": "#1f77b4",
@@ -288,7 +273,7 @@ def plot_rocky_cmf(
     ax.plot(x_grid, y_mean, "k-", lw=1.5, label="Posterior mean")
     ax.fill_between(x_grid, y_lo, y_hi, color="gray", alpha=0.25, label="68% CI")
 
-    # 1:1 reference line
+    # 1:1 reference line. NOT REALLY NEEDED LOL
     ax.plot(x_grid, x_grid, "k--", lw=0.8, alpha=0.4, label="1:1")
 
     ax.set_xlabel("Star CMF")
