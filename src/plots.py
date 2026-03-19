@@ -537,13 +537,13 @@ def make_design_space_N_with_L_contours(
     N_grid = np.linspace(max(1.0, N.min()), N.max(), 300)
     for L0 in L_levels:
         std_curve = L0 / np.sqrt(N_grid)
-        ax.plot(N_grid, std_curve, linestyle="--")
+        ax.plot(N_grid, std_curve, linestyle="--", color="black")
         ax.text(N_grid[-1], std_curve[-1], f"L≈{L0:.1f}", ha="left", va="center", fontsize=8)
 
-    ax.set_xlabel("N (survey size)")
+    ax.set_xlabel("N", fontsize=14)
     ax.set_ylim(bottom=0.0,top=1.2)
-    ax.set_ylabel(f"Std({col})")
-    ax.set_title("Survey design space: N vs $\\sigma$ with Leverage contours")
+    ax.set_ylabel(f"$\\sigma_M$", fontsize=14)
+    #ax.set_title("Survey design space: N vs $\\sigma$ with Leverage contours")
 
     ax.legend(
         title="class label",

@@ -21,7 +21,7 @@ def main() -> None:
     base_dir = Path(__file__).resolve().parent
 
     # paths
-    data_path = base_dir / "dataset" / "hermes_synthetic_data_0.2.0.csv"
+    data_path = base_dir / "dataset" / "hermes_synthetic_data_0.3.0.csv"
     results_dir = base_dir / "results"
     plots_dir = results_dir / "plots_jax"
     results_dir.mkdir(exist_ok=True)
@@ -31,42 +31,42 @@ def main() -> None:
     # 2) build surveys (same design as before)
     sampler = SurveySampler(hermes, rng_seed=42)
 
-    N_grid = [30, 40, 50,100,150]
+    N_grid = [80, 150, 200, 250,300, 350, 400,500, 600]
     surveys = sampler.sample_grid(N_grid, n_reps_per_combo=10)
     
     make_design_space_N_with_L_contours(
         surveys,
-        out_path=plots_dir / "hermes_met_design_space_N_Lcontours.pdf",
+        out_path=plots_dir / "hermes_met_design_space_N_Lcontours_no_title.pdf",
     )
-    met_model = MetModel(draws=2000, tune=2000, target_accept=0.9,compute_log_lik=True,chain_method='parallel')
-    met_fit_df = met_model.run_on_surveys(surveys, seed=321)
+#     met_model = MetModel(draws=2000, tune=2000, target_accept=0.9,compute_log_lik=True,chain_method='parallel')
+#     met_fit_df = met_model.run_on_surveys(surveys, seed=321)
     
-    pdf_path = plot_survey_fits(
-    surveys,
-    met_model,
-    seed=321,
-    out_dir=plots_dir,
-    n_per_class=2,  # one survey per S1..S4
-    pdf_name="survey_fits_under_the_hood.pdf",
-)
-    print("Wrote:", pdf_path)
-    met_csv_path = results_dir / "hermes_met_bivariate.csv"
-    met_fit_df.to_csv(met_csv_path, index=False)
-    print("Wrote metallicity survey summaries to:", met_csv_path)
+#     pdf_path = plot_survey_fits(
+#     surveys,
+#     met_model,
+#     seed=321,
+#     out_dir=plots_dir,
+#     n_per_class=2,  # one survey per S1..S4
+#     pdf_name="survey_fits_under_the_hood.pdf",
+# )
+#     print("Wrote:", pdf_path)
+#     met_csv_path = results_dir / "hermes_met_bivariate.csv"
+#     met_fit_df.to_csv(met_csv_path, index=False)
+#     print("Wrote metallicity survey summaries to:", met_csv_path)
     
-    met_fit_df = pd.read_csv(results_dir / "hermes_met_bivariate.csv")
-    # 4) Visualizations: fixed-N leverage panels + 3D slope view
-    make_met_fixedN_uncertainty_vs_L_from_df(
-        met_fit_df,
-        out_dir=plots_dir,
-        L_col="L_logM",
-    )
+#     met_fit_df = pd.read_csv(results_dir / "hermes_met_bivariate.csv")
+#     # 4) Visualizations: fixed-N leverage panels + 3D slope view
+#     make_met_fixedN_uncertainty_vs_L_from_df(
+#         met_fit_df,
+#         out_dir=plots_dir,
+#         L_col="L_logM",
+#     )
 
-    make_met_fixedN_scatter_mean_vs_L_from_df(
-    met_fit_df,
-    out_dir=plots_dir,
-    L_col="L_logM",
-)
+#     make_met_fixedN_scatter_mean_vs_L_from_df(
+#     met_fit_df,
+#     out_dir=plots_dir,
+#     L_col="L_logM",
+# )
 
 if __name__ == "__main__":
     main()

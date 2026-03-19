@@ -201,7 +201,7 @@ class SurveySampler:
 
     def _build_mass_classes(self) -> Dict[str, pd.DataFrame]:
         df = self.hermes.df
-        q25, q50, q75 = df["logM"].quantile([0.25, 0.5, 0.75])
+        q25, q50, q75 = df["logM"].quantile([0.25, 0.50, 0.75])
 
         classes: Dict[str, pd.DataFrame] = {}
         classes["S1"] = df.copy()
