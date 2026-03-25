@@ -99,9 +99,9 @@ def plot_ariel_mcs_intro():
     cbar.set_label(r"Stellar [Fe/H]", fontsize=13)
     cbar.ax.tick_params(labelsize=11)
 
-    ax.set_xlabel(r"$\log_{10}\,(M_{\rm p}\,/\,M_{\rm Jup})$")
-    ax.set_ylabel(r"$R_{\rm p}\;[R_{\rm Jup}]$")
-    ax.set_title("Ariel Mission Candidate Sample", fontweight="bold", pad=12)
+    ax.set_xlabel(r"$\log_{10}\,(M_{\rm p}\,/\,M_{\rm Jup})$",fontsize=14)
+    ax.set_ylabel(r"$R_{\rm p}\;[R_{\rm Jup}]$", fontsize=14)
+    # ax.set_title("Ariel Mission Candidate Sample", fontweight="bold", pad=12)
 
     ax.text(
         0.98, 0.97,
@@ -176,11 +176,9 @@ def plot_welbanks_2d():
         ),
     )
 
-    ax.set_xlabel(r"$\log_{10}\,(M_{\rm p}\,/\,M_{\rm Jup})$")
-    ax.set_ylabel(r"$\log\,X_{\rm H_2O}/H$")
-    ax.set_title("Injected Mass\u2013Metallicity Trend (Welbanks 2019)",
-                  fontweight="bold", pad=12)
-    ax.legend(fontsize=9.5, loc="upper right", framealpha=0.85)
+    ax.set_xlabel(r"$\log_{10}\,(M_{\rm p}\,/\,M_{\rm Jup})$",fontsize=14)
+    ax.set_ylabel(r"$\log\,X_{\rm H_2O}/H$",fontsize=14)
+    ax.legend(fontsize=10, loc="upper right", framealpha=0.85)
     ax.minorticks_on()
 
     fig.tight_layout()

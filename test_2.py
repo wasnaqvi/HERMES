@@ -41,6 +41,7 @@ def add_nested_S_legend(ax):
         handler_map={tuple: HandlerTuple(ndivide=None)},
         title="Nested mass classes",
         frameon=True,
+        fontsize=14
     )
 
 
@@ -78,7 +79,7 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
 
     ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$", fontsize=15)
     ax.set_ylabel("Count", fontsize=15)
-    ax.set_title("Ariel MCS Nested Mass Classes for HERMES")
+    # ax.set_title("Ariel MCS Nested Mass Classes for HERMES")
 
     # custom legend (replaces ax.legend())
     add_nested_S_legend(ax)
@@ -92,5 +93,5 @@ if __name__ == "__main__":
     sampler = SurveySampler(hermes, rng_seed=42)
 
     fig, ax = plot_logm_nested_counts(sampler, bins=30)
-    fig.savefig("results/Ariel_logM_nested_counts.pdf", bbox_inches="tight")
+    fig.savefig("results/Ariel_logM_nested_counts_no_title.pdf", bbox_inches="tight")
     plt.show()
