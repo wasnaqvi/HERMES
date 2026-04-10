@@ -27,27 +27,24 @@ def add_nested_S_legend(ax):
          Patch(facecolor="red", edgecolor="none", alpha=0.35)),
         (Patch(facecolor="red", edgecolor="none", alpha=0.35),),
     ]
-
     labels = [
-        "S1 (entire Ariel MCS)",
-        "S2 (logM ≥ q25)",
-        "S3 (logM ≥ q50)",
-        "S4 (logM ≥ q75)",
+        r"S1 (entire Ariel MCS)",
+        r"S2 (logM $\geq$ $Q_{25}$)",
+        r"S3 (logM $\geq$ $Q_{50}$)",
+        r"S4 (logM $\geq$ $Q_{75}$)",
     ]
-
     ax.legend(
         handles,
         labels,
         handler_map={tuple: HandlerTuple(ndivide=None)},
         title="Nested mass classes",
         frameon=True,
-        fontsize=14
+        fontsize=17,
     )
 
 
 def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
     df = sampler.hermes.df
-
     logm_all = df["logM"].to_numpy(float)
     logm_all = logm_all[np.isfinite(logm_all)]
 
@@ -71,7 +68,6 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
         label=f"Entire Ariel MCS (n={len(logm_all)})",
         zorder=5,
     )
-
     ax.hist(s1, bins=bin_edges, alpha=0.35, color="blue",   edgecolor="none", zorder=3)
     ax.hist(s2, bins=bin_edges, alpha=0.35, color="orange", edgecolor="none", zorder=3)
     ax.hist(s3, bins=bin_edges, alpha=0.35, color="green",  edgecolor="none", zorder=3)
@@ -79,11 +75,22 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
 
     ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$", fontsize=15)
     ax.set_ylabel("Count", fontsize=15)
-    # ax.set_title("Ariel MCS Nested Mass Classes for HERMES")
 
-    # custom legend (replaces ax.legend())
+    # --- Secondary top axis: log(M / M_Earth) ---
+    LOG_MJ_OVER_ME = np.log10(317.828)
+
+    ax_top = ax.secondary_xaxis(
+        "top",
+        functions=(
+            lambda logMJ: logMJ + LOG_MJ_OVER_ME,
+            lambda logME: logME - LOG_MJ_OVER_ME,
+        ),
+    )
+    ax_top.set_xlabel(
+        r"$\log\!\left(\frac{M}{M_\oplus}\right)$", fontsize=15, labelpad=10
+    )
+
     add_nested_S_legend(ax)
-
     fig.tight_layout()
     return fig, ax
 

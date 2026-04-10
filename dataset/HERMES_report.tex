@@ -591,46 +591,21 @@ grey band = prediction interval. Annotation = scaling exponent with
 \subsection{WAIC Model Comparison}\label{sec:waic}
 
 \begin{itemize}
-    \item We use the expected log pointwise predictive density
-          (elpd) from WAIC, computed for each survey--model
-          combination. Higher elpd indicates better out-of-sample
-          predictive accuracy.
-    \item The comparison statistic:
-    %
-    \begin{equation}\label{eq:dwaic_stellar}
-        \Delta\mathrm{elpd}_{\mathrm{WAIC}}
-            = \mathrm{elpd}_{\text{3D Model}}
-             - \mathrm{elpd}_{\text{2D Model}}.
-    \end{equation}
-    %
-    Positive $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ favors the 3D
-    Model (including the stellar metallicity term).
-    \item \textbf{Stellar--planetary metallicity correlation
-          detection}: at low-to-moderate intrinsic scatter
-          ($\sigma \lesssim 0.4$\,dex), the 3D Model wins decisively
-          for all sample sizes, with $\Delta\mathrm{elpd}$ reaching
-          $\sim\!50$--$200$ depending on $N$.
-    \item As scatter increases, the WAIC advantage of the 3D Model
-          degrades monotonically
-          (Section~\ref{sec:scatter_threshold}). At the baseline
-          injected scatter ($\varepsilon = 0.53$\,dex) and
-          $\beta_s = 1$, detection remains strong for
-          $N \gtrsim 250$ but becomes unreliable for smaller surveys.
-    \item The effective signal-to-noise ratio for detecting the
-          stellar--planetary correlation is:
-    %
-    \begin{equation}\label{eq:stellar_snr}
-        \mathrm{SNR}_{\mathrm{stellar}}
-        = \frac{\beta_s^2\,\mathrm{Var}(s_c)}
-               {\sigma_{p,\mathrm{meas}}^2 + \varepsilon^2}.
-    \end{equation}
-    %
-    Detection requires both sufficient stellar leverage and
-    scatter low enough that the stellar signal is not buried.
-    \item At $N = 600$, the correlation is detected in 100\% of
-          surveys across \emph{all} scatter values tested (up to
-          $\sigma = 2.0$\,dex), demonstrating that large Ariel-scale
-          samples can overcome even extreme intrinsic variance.
+    \item For each survey, we compare the 3D Model and 2D Model
+          (Section~\ref{sec:variants}) using the Widely Applicable
+          Information Criterion (WAIC). Higher
+          $\mathrm{elpd}_{\mathrm{WAIC}}$ indicates better
+          out-of-sample predictive accuracy; positive
+          $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ favors the 3D Model.
+          Full definitions of WAIC and the expected log pointwise
+          predictive density (elpd) are given in
+          Section~\ref{sec:stellar_det}.
+    \item For the baseline surveys (Section~\ref{sec:classes}), the
+          3D Model is preferred in the majority of cases, particularly
+          at large $N$ and high leverage. The scatter-threshold
+          experiment (Section~\ref{sec:scatter_threshold}) quantifies
+          how this preference degrades with increasing intrinsic
+          scatter.
 \end{itemize}
 
 % ==================================================================
@@ -734,112 +709,176 @@ a desirable property.}
 \end{deluxetable}
 
 % ==================================================================
-\section{Stellar--Planetary Metallicity Correlation
-         Detection}\label{sec:stellar_det}
+\section{Recovering the Stellar--Planetary Metallicity
+         Correlation}\label{sec:stellar_det}
 
-\begin{itemize}
-    \item The central question: \emph{given increasing intrinsic
-          astrophysical scatter, at what fraction of surveys can
-          HERMES detect the correlation between stellar and planetary
-          metallicity?}
-    \item At low scatter ($\sigma \lesssim 0.4$\,dex), the 3D Model
-          is preferred by WAIC in 100\% of surveys at every sample
-          size. As scatter grows, smaller surveys lose the ability to
-          distinguish the 3D and 2D Models, while large surveys
-          ($N = 600$) maintain 100\% detection across the entire
-          scatter range tested.
-    \item The detection rate is governed by the effective
-          signal-to-noise ratio of the stellar--planetary correlation:
-    %
-    \begin{equation}
-        \mathrm{SNR}_{\mathrm{stellar}}
-        = \frac{\beta_s^2\,\mathrm{Var}(s_c)}
-               {\sigma_{p,\mathrm{meas}}^2 + \varepsilon^2}.
-    \end{equation}
-    %
-    As $\varepsilon$ grows, the denominator increases and the stellar
-    contribution is progressively diluted, reducing
-    $\Delta\mathrm{elpd}$ and the detection fraction for
-    moderate-$N$ surveys.
-    \item The $\beta_s$ posterior remains well constrained across
-          survey designs (Section~\ref{sec:bssd}), but the
-          \emph{predictive} improvement from including the stellar
-          term diminishes at high scatter for smaller surveys.
-\end{itemize}
+\subsection{The Watanabe--Akaike Information
+            Criterion}\label{sec:waic_def}
+
+To determine whether including the stellar metallicity term provides
+a meaningful improvement in predictive accuracy, we compare the 3D
+and 2D Models (Section~\ref{sec:variants}) using the Widely
+Applicable Information Criterion
+\citep[WAIC;][]{watanabe2010,gelman2014understanding}. WAIC
+estimates the expected log pointwise predictive density (elpd), a
+measure of a model's out-of-sample predictive performance:
+%
+\begin{equation}\label{eq:elpd}
+    \mathrm{elpd}_{\mathrm{WAIC}}
+    = \sum_{i=1}^{N} \left[
+        \log\!\left(\frac{1}{S}\sum_{s=1}^{S}
+            p(y_i \mid \theta^{(s)})\right)
+        - \mathrm{Var}_{s}\!\left(
+            \log p(y_i \mid \theta^{(s)})\right)
+    \right],
+\end{equation}
+%
+where the sum runs over $N$ data points, $S$ is the number of
+posterior draws $\theta^{(s)}$, and the variance term penalizes
+effective model complexity. Higher elpd indicates better predictive
+accuracy: the first term rewards models that assign high average
+likelihood to each observation, while the penalty term guards against
+overfitting.
+
+For each survey we compute:
+%
+\begin{equation}\label{eq:dwaic_stellar}
+    \Delta\mathrm{elpd}_{\mathrm{WAIC}}
+        = \mathrm{elpd}_{\text{3D Model}}
+         - \mathrm{elpd}_{\text{2D Model}}.
+\end{equation}
+%
+Positive $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ indicates that
+including the stellar metallicity term improves predictive accuracy,
+i.e.\ the 3D Model is preferred.
+
+\subsection{Science Question and Signal-to-Noise
+            Considerations}\label{sec:science_q}
+
+Recall from Section~\ref{sec:variants} that in the 2D Model, any
+real stellar metallicity signal is absorbed into the intrinsic scatter
+term $\varepsilon$, inflating its posterior. The 3D Model explicitly
+accounts for this signal via $\beta_s$, separating the
+stellar--planetary metallicity correlation from astrophysical scatter.
+A positive $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ therefore
+indicates that the model can \emph{differentiate} between these two
+sources of variance.
+
+The central science question is: \emph{given increasing intrinsic
+astrophysical scatter, at what fraction of surveys can we recover the
+correlation between stellar and planetary metallicity using
+hierarchical modelling?}
+
+The ability to separate the stellar contribution from intrinsic
+scatter depends on the effective signal-to-noise ratio of the stellar
+term:
+%
+\begin{equation}\label{eq:stellar_snr}
+    \mathrm{SNR}_{\mathrm{stellar}}
+    = \frac{\beta_s^2\,\mathrm{Var}(s_c)}
+           {\sigma_{p,\mathrm{meas}}^2 + \varepsilon^2}.
+\end{equation}
+%
+As the intrinsic scatter $\varepsilon$ grows, the denominator
+increases and the variance contributed by the stellar term
+($\beta_s^2\,\mathrm{Var}(s_c)$) becomes a progressively smaller
+fraction of the total noise budget. This reduces
+$\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ and diminishes the model's
+ability to distinguish the stellar signal. Larger surveys partially
+compensate through increased stellar leverage
+$L_{\mathrm{stellar}}$, but at sufficiently high scatter even large
+samples will struggle.
+
+The $\beta_s$ posterior itself remains well constrained across survey
+designs (Section~\ref{sec:bssd}), but the \emph{predictive}
+improvement from including the stellar term --- as measured by WAIC
+--- diminishes at high scatter for smaller surveys. This distinction
+is important: the model can still \emph{estimate} $\beta_s$
+accurately while the stellar term ceases to improve predictions.
 
 % ==================================================================
 \subsection{Scatter-Threshold Experiment}\label{sec:scatter_threshold}
 
-\begin{itemize}
-    \item To quantify the scatter dependence, we regenerate synthetic
-          planetary metallicities across a grid of intrinsic scatter
-          values
-          $\sigma \in \{0.1, 0.2, 0.3, 0.4, 0.8, 1.0, 1.2, 1.5,
-          1.8, 2.0\}$\,dex, holding the mass slope, stellar slope,
-          and intercept fixed at their injected values.
-    \item A \textbf{fixed noise seed} is used: the same unit-normal
-          draws are scaled by each $\sigma$, removing inter-scatter
-          sampling noise and isolating the effect of scatter amplitude.
-    \item For each $\sigma$, surveys are drawn at
-          $N \in \{80, 150, 250, 400, 600\}$ with 3 repetitions per
-          class--$N$ combination, and both the 3D Model and 2D Model
-          are fit.
-    \item Detection criterion:
-          $\Delta\mathrm{elpd}_{\mathrm{WAIC}} > 0$ (the 3D Model is
-          preferred).
-\end{itemize}
+To quantify how intrinsic scatter affects the recovery of the
+stellar--planetary metallicity correlation, we conduct a controlled
+experiment. Synthetic planetary metallicities are regenerated across a
+grid of intrinsic scatter values
+$\sigma \in \{0.1,\, 0.2,\, 0.3,\, 0.4,\, 0.8,\, 1.0,\, 1.2,\,
+1.5,\, 1.8,\, 2.0\}$\,dex, this time explicitly injecting a stellar
+metallicity slope $\beta_s = 1$ alongside the mass trend:
+%
+\begin{equation}\label{eq:scatter_inject}
+    \log X_{\mathrm{H_2O}}
+    = -1.09\,\log M
+    + 1.0 \times [\mathrm{Fe/H}]_\star
+    - 0.95
+    + \sigma \cdot z_i,
+\end{equation}
+%
+where $z_i$ are fixed unit-normal draws (seed~$= 42$) scaled by each
+$\sigma$. Using a fixed noise seed removes inter-scatter sampling
+noise and isolates the effect of scatter amplitude on model
+comparison.
 
-\subsubsection{Detection Fraction vs.\ Intrinsic Scatter}
+For each $\sigma$, surveys are drawn at
+$N \in \{80,\, 150,\, 250,\, 400,\, 600\}$ with 3~repetitions per
+class--$N$ combination. Both the 3D Model and 2D Model are fit to
+every survey, and $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ is computed.
+The recovery criterion is
+$\Delta\mathrm{elpd}_{\mathrm{WAIC}} > 0$ (the 3D Model is
+preferred over the 2D Model).
 
-\begin{itemize}
-    \item Figure~\ref{fig:scatter_curve}: the fraction of surveys
-          detecting the stellar--planetary correlation drops
-          monotonically with increasing $\sigma$.
-    \item At $\sigma \leq 0.4$\,dex, detection is 100\% across all
-          sample sizes.
-    \item At intermediate scatter ($\sigma \approx 0.8$--$1.2$\,dex),
-          detection remains high for large surveys ($N \geq 400$) but
-          degrades for $N \leq 150$.
-    \item At $N = 600$, the correlation is detected in 100\% of
-          surveys at \emph{every} scatter value tested, up to
-          $\sigma = 2.0$\,dex.
-    \item Larger $N$ provides a decisive advantage: at
-          $\sigma = 1.5$\,dex, detection is 100\% for $N=600$ but
-          only 17\% for $N=150$.
-\end{itemize}
+\subsection{Recovery Fraction vs.\ Intrinsic
+            Scatter}\label{sec:recov_frac}
+
+Figure~\ref{fig:scatter_curve} shows the fraction of surveys where
+the 3D Model is preferred as a function of intrinsic scatter. At low
+scatter ($\sigma \leq 0.4$\,dex), the stellar--planetary correlation
+is recovered in 100\% of surveys across all sample sizes. As scatter
+increases, smaller surveys progressively lose the ability to
+distinguish the two models: for $N \leq 150$, the recovery fraction
+drops below 50\% by $\sigma \approx 0.8$--$1.0$\,dex.
+
+Critically, Ariel-scale surveys ($N = 600$) maintain 100\% recovery
+across the \emph{entire} scatter range tested, up to
+$\sigma = 2.0$\,dex --- nearly four times the baseline injected
+scatter. At $\sigma = 1.5$\,dex, recovery is 100\% for $N = 600$ but
+only $\sim\!17\%$ for $N = 150$, underscoring the decisive advantage
+of large sample sizes.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{scatter_threshold_detection_curve.pdf}
-\caption{Fraction of surveys detecting the stellar--planetary
-metallicity correlation (via $\Delta\mathrm{elpd}_{\mathrm{WAIC}} > 0$) as a function of
-intrinsic scatter $\sigma$. Each colored line corresponds to a
-different sample size $N$; the black dashed line aggregates across
-all $N$. The green/red shading indicates regimes where detection
-is reliable vs.\ lost.}
+\caption{Fraction of surveys where the 3D Model is preferred over the
+2D Model (via $\Delta\mathrm{elpd}_{\mathrm{WAIC}} > 0$) as a
+function of intrinsic scatter $\sigma$. Each coloured line
+corresponds to a different sample size $N$; the black dashed line
+aggregates across all $N$. Green/red shading indicates regimes where
+recovery is reliable vs.\ unreliable.}
 \label{fig:scatter_curve}
 \end{figure}
 
-\subsubsection{$\beta_s$ Recovery and Significance}\label{sec:bs_recovery}
+\subsection{$\beta_s$ Recovery and
+            Significance}\label{sec:bs_recovery}
 
-\begin{itemize}
-    \item Figure~\ref{fig:bs_recovery}: the scatter-threshold
-          experiment injects $\beta_s = 1$ alongside the mass trend,
-          allowing direct assessment of stellar slope recovery.
-    \item Left panel: the median posterior $\beta_s$ is attenuated
-          below the injected value at low-to-moderate $N$; attenuation
-          bias grows with intrinsic scatter as the stellar signal is
-          progressively diluted. Larger surveys recover $\beta_s$
-          closer to the injected value across all $\sigma$.
-    \item Right panel: median significance
-          $|\beta_s / \sigma_{\beta_s}|$ drops monotonically with
-          scatter. For $N \leq 150$, significance falls below the
-          $2\sigma$ threshold by $\sigma \approx 0.8$--$1.0$\,dex,
-          consistent with the detection-fraction results
-          (Figure~\ref{fig:scatter_curve}). Ariel-scale surveys
-          ($N = 600$) maintain significance above $2\sigma$ across the
-          entire scatter range tested.
-\end{itemize}
+Figure~\ref{fig:bs_recovery} directly examines how well the stellar
+slope is recovered as scatter increases. The left panel shows that the
+median posterior $\beta_s$ is attenuated below the injected value at
+low-to-moderate $N$; this attenuation bias grows with intrinsic
+scatter as the stellar signal is progressively diluted by the
+increasing noise floor. Larger surveys recover $\beta_s$ closer to
+the injected value across all $\sigma$.
+
+The right panel shows the median significance
+$|\beta_s / \sigma_{\beta_s}|$ as a function of scatter. For
+$N \leq 150$, significance falls below the $2\sigma$ threshold by
+$\sigma \approx 0.8$--$1.0$\,dex, consistent with the
+recovery-fraction results (Figure~\ref{fig:scatter_curve}).
+Ariel-scale surveys ($N = 600$) maintain significance above $2\sigma$
+across the entire scatter range tested, confirming that HERMES can
+both \emph{identify} and \emph{accurately estimate} the
+stellar--planetary metallicity correlation for large samples
+regardless of scatter.
 
 \begin{figure*}[t]
 \centering
@@ -848,57 +887,60 @@ is reliable vs.\ lost.}
 ($\beta_s = 1$ injected). Left: median posterior $\beta_s$ vs.\
 intrinsic scatter $\sigma$; dashed line = injected value. Right:
 median significance $|\beta_s / \sigma_{\beta_s}|$ vs.\ $\sigma$;
-dashed line = $2\sigma$ detection threshold. Each colour corresponds
-to a different sample size $N$.}
+dashed line = $2\sigma$ threshold. Each colour corresponds to a
+different sample size $N$.}
 \label{fig:bs_recovery}
 \end{figure*}
 
-\subsubsection{Detection Heatmap}
+\subsection{Recovery Heatmap}\label{sec:heatmap}
 
-\begin{itemize}
-    \item Figure~\ref{fig:scatter_heatmap}: the detection fraction
-          for every ($\sigma$,~$N$) combination, presented as a
-          heatmap.
-    \item The upper-left region (low $\sigma$, high $N$) is
-          uniformly green (high detection); the lower-right
-          (high $\sigma$, low $N$) is uniformly pale (low detection).
-    \item For moderate surveys ($N \leq 250$), the transition from
-          reliable to unreliable detection occurs at
-          $\sigma \approx 0.8$--$1.2$\,dex. However, Ariel-scale
-          surveys ($N = 600$) maintain 100\% detection across the
-          entire scatter range, demonstrating that sufficiently large
-          samples can overcome even extreme intrinsic variance.
-\end{itemize}
+Figure~\ref{fig:scatter_heatmap} presents the recovery fraction for
+every ($\sigma$,~$N$) combination as a heatmap. The upper-left region
+(low $\sigma$, high $N$) is uniformly dark green (the 3D Model is
+consistently preferred); the lower-right (high $\sigma$, low $N$) is
+uniformly pale (the two models are indistinguishable). For moderate
+surveys ($N \leq 250$), the transition from reliable to unreliable
+recovery occurs at $\sigma \approx 0.8$--$1.2$\,dex. Ariel-scale
+surveys ($N = 600$) maintain 100\% preference for the 3D Model across
+the entire scatter range, demonstrating that sufficiently large
+samples can disentangle the stellar metallicity correlation from
+intrinsic astrophysical variance.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{scatter_threshold_heatmap_no_title.pdf}
-\caption{Heatmap of detection fraction by ($\sigma$,~$N$). Each
-cell shows the fraction of surveys where the 3D Model is favored
-over the 2D Model by WAIC. The transition from reliable detection
-(dark) to non-detection (pale) sharpens at
-$\sigma \approx 0.4$--$0.8$\,dex depending on $N$.}
+\caption{Heatmap of the fraction of surveys where the 3D Model is
+preferred over the 2D Model by WAIC, as a function of intrinsic
+scatter $\sigma$ (columns) and sample size $N$ (rows). The transition
+from reliable recovery (dark green) to indistinguishable models
+(pale) sharpens at $\sigma \approx 0.4$--$0.8$\,dex depending on
+$N$.}
 \label{fig:scatter_heatmap}
 \end{figure}
 
-\subsubsection{WAIC Advantage Degradation}
+\subsection{WAIC Advantage Degradation}\label{sec:waic_degrad}
 
-\begin{itemize}
-    \item Figure~\ref{fig:scatter_dwaic}: the median
-          $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ drops monotonically
-          with increasing scatter.
-    \item At low $\sigma$, the median $\Delta\mathrm{elpd}$ is
-          strongly positive (up to $\sim\!200$ for $N=600$),
-          confirming the 3D Model is clearly preferred. The advantage
-          scales strongly with $N$: at $\sigma = 0.1$\,dex,
-          $\Delta\mathrm{elpd} \approx 20$ for $N=80$ vs.\
-          $\sim\!210$ for $N=600$.
-    \item For small surveys ($N \leq 150$), the median
-          $\Delta\mathrm{elpd}$ approaches zero by
-          $\sigma \approx 0.8$\,dex, indicating that the models
-          become indistinguishable in predictive accuracy.
-          Large surveys retain a positive advantage throughout.
-\end{itemize}
+Figure~\ref{fig:scatter_dwaic} shows the median
+$\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ as a function of intrinsic
+scatter, with one line per sample size. At low $\sigma$, the median
+$\Delta\mathrm{elpd}$ is strongly positive (up to $\sim\!200$ for
+$N = 600$), confirming the 3D Model is clearly preferred. The
+advantage scales strongly with $N$: at $\sigma = 0.1$\,dex,
+$\Delta\mathrm{elpd} \approx 20$ for $N = 80$ vs.\
+$\sim\!210$ for $N = 600$.
+
+For small surveys ($N \leq 150$), the median $\Delta\mathrm{elpd}$
+approaches zero by $\sigma \approx 0.8$\,dex, indicating that the
+two models become indistinguishable in predictive accuracy. Large
+surveys retain a positive advantage throughout, with $N = 600$ never
+crossing zero even at $\sigma = 2.0$\,dex.
+
+This degradation follows directly from equation~\eqref{eq:stellar_snr}: as $\varepsilon$ grows, the stellar
+contribution to the total variance shrinks, and the predictive
+improvement from the $\beta_s$ term diminishes. The 3D Model still
+recovers $\beta_s$ accurately
+(Figure~\ref{fig:bs_recovery}), but the gain in predictive power over
+the simpler 2D Model narrows.
 
 \begin{figure}[t]
 \centering
@@ -906,7 +948,7 @@ $\sigma \approx 0.4$--$0.8$\,dex depending on $N$.}
 \caption{Median $\Delta\mathrm{elpd}_{\mathrm{WAIC}}$ (3D Model $-$
 2D Model) vs.\ intrinsic scatter, one line per $N$. The WAIC
 advantage degrades monotonically; the red shading marks the regime
-where the median favors the simpler 2D Model.}
+where the median favours the simpler 2D Model.}
 \label{fig:scatter_dwaic}
 \end{figure}
 

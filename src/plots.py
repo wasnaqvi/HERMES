@@ -505,7 +505,6 @@ def make_design_space_N_vs_std(
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-
 def make_design_space_N_with_L_contours(
     surveys,
     col: str = "logM",
@@ -534,143 +533,48 @@ def make_design_space_N_with_L_contours(
         mask = np.array([l == lab for l in labels])
         ax.scatter(N[mask], std[mask], label=lab, alpha=0.8)
 
+    # Contour colors matching the class colours
+    contour_colors = ["C0", "C1", "C2", "C3"]
+
     N_grid = np.linspace(max(1.0, N.min()), N.max(), 300)
-    for L0 in L_levels:
+    for i, L0 in enumerate(L_levels):
+        color = contour_colors[i % len(contour_colors)]
         std_curve = L0 / np.sqrt(N_grid)
-        ax.plot(N_grid, std_curve, linestyle="--", color="black")
-        ax.text(N_grid[-1], std_curve[-1], f"L≈{L0:.1f}", ha="left", va="center", fontsize=8)
+        ax.plot(N_grid, std_curve, linestyle="--", color=color, linewidth=2)
+        # Place label inside the plot, near the right end but with enough padding
+        idx = -15  # step back from the edge so text stays inside
+        ax.annotate(
+            f"L≈{L0:.1f}",
+            xy=(N_grid[idx], std_curve[idx]),
+            xytext=(10, -2),
+            textcoords="offset points",
+            fontsize=10,
+            color=color,
+            fontweight="bold",
+            ha="left",
+            va="center",
+            clip_on=True,
+        )
 
     ax.set_xlabel("N", fontsize=14)
-    ax.set_ylim(bottom=0.0,top=1.2)
-    ax.set_ylabel(f"$\\sigma_M$", fontsize=14)
-    #ax.set_title("Survey design space: N vs $\\sigma$ with Leverage contours")
+    ax.set_ylim(bottom=0.0, top=1.2)
+    ax.set_ylabel(r"$\sigma_M$", fontsize=14)
 
     ax.legend(
         title="class label",
-        loc="upper right",
-        fontsize=8,
-        title_fontsize=9,
-        frameon=False,
-        markerscale=0.8,
+        loc="upper left",
+        fontsize=12,
+        title_fontsize=13,
+        frameon=True,
+        markerscale=1.2,
         handlelength=1.5,
         handletextpad=0.4,
     )
 
     plt.minorticks_on()
     plt.tight_layout()
-    fig.savefig(out_path)  # vector
+    fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
-
-
-def make_fixedN_sigma_vs_L_scatter_from_df(
-    df: pd.DataFrame,
-    out_dir: str | Path = "plots",
-    L_col: str = "L_logM",
-) -> None:
-    """
-    For each distinct N, make a 3-panel figure:
-        σ_alpha vs L, σ_beta(mass) vs L, σ_scatter vs L,
-    coloured by class_label.
-
-    Schema-robust:
-      alpha_sd: alpha_sd or alpha_p_sd
-      beta_sd : beta_sd  or beta_p_sd
-      scatter : sigma_sd or epsilon_sd
-    """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    df = df.copy()
-    df["N"] = df["N"].astype(int)
-
-    L_col = resolve_L_col(df, preferred=L_col)
-
-    a = resolve_alpha_cols(df)
-    b = resolve_beta_mass_cols(df)
-    s = resolve_scatter_cols(df)
-
-    class_order = ["S1", "S2", "S3", "S4"]
-    class_colors = {"S1": "C0", "S2": "C1", "S3": "C2", "S4": "C3"}
-
-    y_cols   = [a["sd"], b["sd"], s["sd"]]
-    y_labels = [r"$\sigma_\alpha$", r"$\sigma_{\beta}$", r"$\sigma_\varepsilon$"]
-    y_syms   = ["\\alpha", "\\beta", "\\varepsilon"]
-
-    for N0 in sorted(df["N"].unique()):
-        sub = df[df["N"] == N0]
-        if sub.empty:
-            continue
-
-        fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.2), sharex=True)
-        fig.suptitle(rf"$N = {N0}$", fontsize=12)
-
-        L_all = sub[L_col].to_numpy(float)
-
-        for ax, ycol, ylabel, sym in zip(axes, y_cols, y_labels, y_syms):
-            for cls in class_order:
-                cls_sub = sub[sub["class_label"] == cls]
-                if cls_sub.empty:
-                    continue
-                ax.scatter(
-                    cls_sub[L_col].to_numpy(float),
-                    cls_sub[ycol].to_numpy(float),
-                    s=18,
-                    alpha=0.9,
-                    label=cls,
-                    color=class_colors.get(cls, "k"),
-                )
-
-            ax.set_xlabel(fr"$L_M$")
-            ax.set_ylabel(ylabel)
-            ax.minorticks_on()
-
-            y_all = sub[ycol].to_numpy(float)
-
-            m = np.isfinite(L_all) & np.isfinite(y_all) & (L_all > 0) & (y_all > 0)
-            x_fit = L_all[m]
-            y_fit = y_all[m]
-
-            if x_fit.size >= 2:
-                xg = np.linspace(x_fit.min() * 0.98, x_fit.max() * 1.02, 200)
-
-                y_hat, lo, hi = _powerlaw_band(x_fit, y_fit, xg, prediction=False, z=1.0)
-                ax.fill_between(xg, lo, hi, alpha=0.15, linewidth=0)
-                ax.plot(xg, y_hat, linestyle="--", linewidth=1.2)
-
-                try:
-                    c, m_lin = _linear_fit(x_fit, y_fit)
-                    ax.plot(xg, c + m_lin * xg, linestyle="-.", linewidth=1.0)
-                except ValueError:
-                    pass
-
-                fr = _powerlaw_fit(x_fit, y_fit)
-                xr, yr = ax.get_xlim(), ax.get_ylim()
-                if fr.b < 0:
-                    ann = rf"fit: $\sigma_{{{sym}}}=\dfrac{{{fr.a:.2g}}}{{L^{{{-fr.b:.2f}}}}}$"
-                else:
-                    ann = rf"fit: $\sigma_{{{sym}}}={fr.a:.2g}L^{{{fr.b:.2f}}}$"
-                ax.text(
-                    xr[0] + 0.62 * (xr[1] - xr[0]),
-                    yr[0] + 0.85 * (yr[1] - yr[0]),
-                    ann,
-                    fontsize=8,
-                )
-
-        handles, labels = [], []
-        for cls in class_order:
-            if (sub["class_label"] == cls).any():
-                h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5, color=class_colors.get(cls, "k"))
-                handles.append(h)
-                labels.append(cls)
-        if handles:
-            axes[0].legend(handles, labels, title="class", fontsize=8, title_fontsize=9, frameon=False, loc="best")
-
-        fig.tight_layout()
-        out_file = out_dir / f"fixedN_N{N0}_sigma_vs_{L_col}.pdf"
-        fig.savefig(out_file)
-        plt.close(fig)
-
-
 # =====================================================================
 #  METALLICITY MODEL PANELS (MetModel) — schema-robust now
 # =====================================================================
