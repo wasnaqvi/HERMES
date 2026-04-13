@@ -73,8 +73,8 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
     ax.hist(s3, bins=bin_edges, alpha=0.35, color="green",  edgecolor="none", zorder=3)
     ax.hist(s4, bins=bin_edges, alpha=0.35, color="red",    edgecolor="none", zorder=3)
 
-    ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$", fontsize=15)
-    ax.set_ylabel("Count", fontsize=15)
+    ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$", fontsize=19)
+    ax.set_ylabel("Count", fontsize=16)
 
     # --- Secondary top axis: log(M / M_Earth) ---
     LOG_MJ_OVER_ME = np.log10(317.828)
@@ -87,7 +87,7 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
         ),
     )
     ax_top.set_xlabel(
-        r"$\log\!\left(\frac{M}{M_\oplus}\right)$", fontsize=15, labelpad=10
+        r"$\log\!\left(\frac{M}{M_\oplus}\right)$", fontsize=18, labelpad=10
     )
 
     add_nested_S_legend(ax)
