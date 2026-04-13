@@ -79,8 +79,8 @@ def resolve_scatter_cols(df: pd.DataFrame) -> dict:
 def resolve_L_col(df: pd.DataFrame, preferred: str = "L_logM") -> str:
     if preferred in df.columns:
         return preferred
-    # common fallbacks
-    for c in ("L_3d", "L_2d", "L_logM", "L_met"):
+    # common fallbacks — check new names (L_mass, L_stellar) first, then legacy
+    for c in ("L_mass", "L_stellar", "L_3d", "L_2d", "L_logM", "L_met"):
         if c in df.columns:
             return c
     raise KeyError(f"No leverage column found. Tried {preferred} and fallbacks.")
@@ -186,6 +186,116 @@ def _powerlaw_band(x, y, xg, prediction=False, z=1.0):
     lo = np.exp(lo_log)
     hi = np.exp(hi_log)
     return y_hat, lo, hi
+
+
+# ----------------------- power-law with uncertainty --------------------------
+
+# Class display order and colours — mirror the notebook
+_CLS_ORDER = ["S1", "S2", "S3", "S4"]
+_CLS_CLR   = {"S1": "C0", "S2": "C1", "S3": "C2", "S4": "C3"}
+
+
+def _pl_fit_unc(x, y):
+    """
+    Power-law fit in log-log space.
+    Returns (exponent, 1-sigma uncertainty on exponent).
+    """
+    x = np.asarray(x, float).ravel()
+    y = np.asarray(y, float).ravel()
+    m = np.isfinite(x) & np.isfinite(y) & (x > 0) & (y > 0)
+    lx, ly = np.log(x[m]), np.log(y[m])
+    A = np.vstack([np.ones_like(lx), lx]).T
+    b = np.linalg.lstsq(A, ly, rcond=None)[0]
+    r = ly - A @ b
+    s2 = np.dot(r, r) / max(len(lx) - 2, 1)
+    cov = s2 * np.linalg.inv(A.T @ A)
+    return float(b[1]), float(np.sqrt(cov[1, 1]))
+
+
+def scatter_fits(
+    ax,
+    x,
+    y,
+    labels,
+    ylabel_tex: str,
+    xlabel_tex: str,
+    cls_order: Optional[List[str]] = None,
+    cls_colors: Optional[Dict[str, str]] = None,
+) -> None:
+    """
+    Scatter plot coloured by survey class with overlaid power-law prediction band
+    and an exponent ± 1σ annotation.  Mirrors the notebook ``scatter_fits`` helper.
+
+    Parameters
+    ----------
+    ax          : matplotlib Axes
+    x, y        : 1-D array-likes (leverage and posterior SD)
+    labels      : 1-D string array of class labels, aligned with x/y
+    ylabel_tex  : LaTeX string for y-axis label
+    xlabel_tex  : LaTeX string for x-axis label
+    """
+    if cls_order is None:
+        cls_order = _CLS_ORDER
+    if cls_colors is None:
+        cls_colors = _CLS_CLR
+
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    labels = np.asarray(labels, str)
+
+    m = np.isfinite(x) & np.isfinite(y) & (x > 0) & (y > 0)
+
+    for cls in cls_order:
+        cm = labels == cls
+        if not cm.any():
+            continue
+        ax.scatter(x[cm], y[cm], s=18, alpha=0.9, color=cls_colors.get(cls, "k"), label=cls)
+
+    ax.set_xlabel(xlabel_tex)
+    ax.set_ylabel(ylabel_tex)
+    ax.minorticks_on()
+
+    xf, yf = x[m], y[m]
+    if xf.size < 2:
+        return
+
+    xg = np.linspace(xf.min() * 0.98, xf.max() * 1.02, 200)
+    # prediction band (matches notebook's _pl_band which always uses prediction=True)
+    y_hat, lo, hi = _powerlaw_band(xf, yf, xg, prediction=True, z=1.0)
+    ax.fill_between(xg, lo, hi, alpha=0.15, linewidth=0)
+    ax.plot(xg, y_hat, ls="--", lw=1.2)
+
+    b_exp, b_err = _pl_fit_unc(xf, yf)
+    sym = ylabel_tex.strip().strip("$")
+    ann = rf"${sym} \propto L^{{{b_exp:.2f}\;^{{+{b_err:.2f}}}_{{-{b_err:.2f}}}}}$"
+    ax.text(0.05, 0.95, ann, transform=ax.transAxes, fontsize=11, va="top")
+
+
+def add_legend(
+    ax,
+    df: pd.DataFrame,
+    cls_order: Optional[List[str]] = None,
+    cls_colors: Optional[Dict[str, str]] = None,
+) -> None:
+    """
+    Add a class-colour legend to *ax* using the ``class_label`` column of *df*.
+    Only classes that actually appear in the data are shown.
+    """
+    if cls_order is None:
+        cls_order = _CLS_ORDER
+    if cls_colors is None:
+        cls_colors = _CLS_CLR
+
+    handles, leg_labels = [], []
+    for cls in cls_order:
+        if "class_label" in df.columns and (df["class_label"] == cls).any():
+            handles.append(
+                plt.Line2D([], [], ls="none", marker="o", ms=5, color=cls_colors.get(cls, "k"))
+            )
+            leg_labels.append(cls)
+    if handles:
+        ax.legend(handles, leg_labels, title="class", fontsize=10, title_fontsize=11,
+                  frameon=False, loc="best")
 
 
 # ----------------------- plotting helpers ------------------------------------
@@ -618,40 +728,39 @@ def _scatter_with_fits(
 
     xg = np.linspace(x_fit.min() * 0.98, x_fit.max() * 1.02, 200)
 
-    y_hat, lo, hi = _powerlaw_band(x_fit, y_fit, xg, prediction=False, z=1.0)
+    # use prediction band to match notebook convention
+    y_hat, lo, hi = _powerlaw_band(x_fit, y_fit, xg, prediction=True, z=1.0)
     ax.fill_between(xg, lo, hi, alpha=0.15, linewidth=0)
     ax.plot(xg, y_hat, linestyle="--", linewidth=1.2)
 
-    try:
-        c, m_lin = _linear_fit(x_fit, y_fit)
-        ax.plot(xg, c + m_lin * xg, linestyle="-.", linewidth=1.0)
-    except ValueError:
-        pass
-
-    fr = _powerlaw_fit(x_fit, y_fit)
-    xr, yr = ax.get_xlim(), ax.get_ylim()
+    b_exp, b_err = _pl_fit_unc(x_fit, y_fit)
+    sym = y_symbol_tex.strip().strip("$")
     ax.text(
-        xr[0] + 0.60 * (xr[1] - xr[0]),
-        yr[0] + 0.86 * (yr[1] - yr[0]),
-        rf"fit: {y_symbol_tex} $\propto L^{{{fr.b:.2f}}}$",
-        fontsize=8,
+        0.05, 0.95,
+        rf"${sym} \propto L^{{{b_exp:.2f}\;^{{+{b_err:.2f}}}_{{-{b_err:.2f}}}}}$",
+        transform=ax.transAxes,
+        fontsize=9,
+        va="top",
     )
 
 
 def make_met_fixedN_uncertainty_vs_L_from_df(
     df: pd.DataFrame,
     out_dir: str | Path = "plots",
-    L_col: str = "L_logM",
+    L_col: str = "L_mass",
+    second_L_col: Optional[str] = None,
 ) -> None:
     """
     For each N (fixed-N panels), plot posterior SD vs leverage for the *MetModel*:
 
-      alpha: alpha_p_sd
-      beta_mass: beta_p_sd
-      beta_star: beta_s_sd
-      scatter: epsilon_sd
+      alpha_p_sd, beta_p_sd, beta_s_sd (if present), epsilon_sd
 
-    NOTE: This expects MetModel-style columns; if beta_s_* absent, panel 3 is skipped.
+    When ``second_L_col`` is provided (e.g. ``"L_stellar"`` alongside
+    ``L_col="L_mass"``), each parameter panel is duplicated side-by-side —
+    one column per leverage — mirroring the notebook layout.
+
+    The preferred L column name resolution order: L_mass > L_stellar >
+    L_logM > L_met (matches notebook output column names).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -660,6 +769,11 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
     df["N"] = df["N"].astype(int)
 
     L_col = resolve_L_col(df, preferred=L_col)
+
+    # Optionally detect a second leverage column
+    use_two_L = False
+    if second_L_col is not None and second_L_col in df.columns and second_L_col != L_col:
+        use_two_L = True
 
     a = resolve_alpha_cols(df)
     bm = resolve_beta_mass_cols(df)
@@ -686,53 +800,92 @@ def make_met_fixedN_uncertainty_vs_L_from_df(
         L_all = sub[L_col].to_numpy(float)
         labels = sub["class_label"].to_numpy(str)
 
-        # choose layout
-        n_pan = len(panels)
-        nrows = 2
-        ncols = int(np.ceil(n_pan / nrows))
-
-        fig, axes = plt.subplots(nrows, ncols, figsize=(4.3 * ncols, 5.8), sharex=True)
-        axes = np.atleast_1d(axes).ravel()
-
-        fig.suptitle(rf"Fixed $N={N0}$: Posterior uncertainties vs. Leverage", fontsize=12)
-
-        for ax, (col, ylabel) in zip(axes, panels):
-            y_all = sub[col].to_numpy(float)
-            _scatter_with_fits(
-                ax,
-                L_all,
-                y_all,
-                labels,
-                class_order,
-                class_colors,
-                ylabel,
-                L_label_tex=rf"$L_M$",
+        if use_two_L:
+            # Two-column layout: left = L_col, right = second_L_col
+            L2_all = sub[second_L_col].to_numpy(float)
+            fig, axes = plt.subplots(
+                len(panels), 2,
+                figsize=(9.0, 3.5 * len(panels)),
+                sharex="col",
             )
+            axes = np.atleast_2d(axes)
+            fig.suptitle(rf"Fixed $N={N0}$: Posterior uncertainties vs. Leverage", fontsize=12)
 
-        # hide any unused axes
-        for ax in axes[len(panels):]:
-            ax.axis("off")
+            for row_i, (col, ylabel) in enumerate(panels):
+                y_all = sub[col].to_numpy(float)
+                _scatter_with_fits(
+                    axes[row_i, 0], L_all, y_all, labels,
+                    class_order, class_colors, ylabel,
+                    L_label_tex=rf"${L_col}$",
+                )
+                _scatter_with_fits(
+                    axes[row_i, 1], L2_all, y_all, labels,
+                    class_order, class_colors, ylabel,
+                    L_label_tex=rf"${second_L_col}$",
+                )
 
-        # legend on first visible axis
-        handles, leg_labels = [], []
-        for cls in class_order:
-            if (sub["class_label"] == cls).any():
-                h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5, color=class_colors.get(cls, "k"))
-                handles.append(h)
-                leg_labels.append(cls)
-        if handles:
-            axes[0].legend(handles, leg_labels, title="class", fontsize=8, title_fontsize=9, frameon=False, loc="best")
+            # legend top-left
+            handles, leg_labels = [], []
+            for cls in class_order:
+                if (sub["class_label"] == cls).any():
+                    h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5,
+                                   color=class_colors.get(cls, "k"))
+                    handles.append(h)
+                    leg_labels.append(cls)
+            if handles:
+                axes[0, 0].legend(handles, leg_labels, title="class", fontsize=8,
+                                  title_fontsize=9, frameon=False, loc="best")
 
-        fig.tight_layout()
-        out_file = out_dir / f"met_fixedN_N{N0}_uncertainty_vs_{L_col}.pdf"
-        fig.savefig(out_file)
-        plt.close(fig)
+            fig.tight_layout()
+            out_file = out_dir / f"met_fixedN_N{N0}_uncertainty_vs_{L_col}_and_{second_L_col}.pdf"
+            fig.savefig(out_file)
+            plt.close(fig)
+
+        else:
+            # Single-leverage layout (original behaviour)
+            n_pan = len(panels)
+            nrows = 2
+            ncols = int(np.ceil(n_pan / nrows))
+
+            fig, axes = plt.subplots(nrows, ncols, figsize=(4.3 * ncols, 5.8), sharex=True)
+            axes = np.atleast_1d(axes).ravel()
+
+            fig.suptitle(rf"Fixed $N={N0}$: Posterior uncertainties vs. Leverage", fontsize=12)
+
+            for ax, (col, ylabel) in zip(axes, panels):
+                y_all = sub[col].to_numpy(float)
+                _scatter_with_fits(
+                    ax, L_all, y_all, labels,
+                    class_order, class_colors, ylabel,
+                    L_label_tex=rf"${L_col}$",
+                )
+
+            # hide any unused axes
+            for ax in axes[len(panels):]:
+                ax.axis("off")
+
+            # legend on first visible axis
+            handles, leg_labels = [], []
+            for cls in class_order:
+                if (sub["class_label"] == cls).any():
+                    h = plt.Line2D([], [], linestyle="none", marker="o", markersize=5,
+                                   color=class_colors.get(cls, "k"))
+                    handles.append(h)
+                    leg_labels.append(cls)
+            if handles:
+                axes[0].legend(handles, leg_labels, title="class", fontsize=8,
+                               title_fontsize=9, frameon=False, loc="best")
+
+            fig.tight_layout()
+            out_file = out_dir / f"met_fixedN_N{N0}_uncertainty_vs_{L_col}.pdf"
+            fig.savefig(out_file)
+            plt.close(fig)
 
 
 def make_met_fixedN_scatter_mean_vs_L_from_df(
     df: pd.DataFrame,
     out_dir: str | Path = "plots",
-    L_col: str = "L_logM",
+    L_col: str = "L_mass",
 ) -> None:
     """
     For each N, show how posterior mean intrinsic scatter changes with leverage.
@@ -791,7 +944,7 @@ def make_met_fixedN_scatter_mean_vs_L_from_df(
 def make_met_global_slope_3d_from_df(
     df: pd.DataFrame,
     out_path: str | Path = "plots/met_slope_plane.pdf",
-    L_col: str = "L_logM",
+    L_col: str = "L_mass",
 ) -> None:
     """
     3D view in (beta_p, beta_s, alpha_p) space (MetModel).

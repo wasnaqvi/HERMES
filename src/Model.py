@@ -19,7 +19,7 @@ from numpyro.infer.util import log_likelihood
 from .Survey import Survey  
 
 Array1D = npt.NDArray[np.floating]
-ModelKind = Literal["lin", "met"]
+ModelKind = Literal["lin", "met", "met_no_scatter", "met_no_stellar"]
 JaxDType = Union[jnp.float32, jnp.float64]
 
 def _as_1d_float(x: npt.ArrayLike) -> Array1D:
@@ -202,29 +202,99 @@ def _met_model(
     # latent true stellar metallicity
     x_s_true = numpyro.sample("x_s_true", dist.Normal(x_s_obs, sig_meas_s))
 
-    # center stellar metallicity using latent mean (batch-safe)
-    x_s_true_c = x_s_true - jnp.mean(x_s_true, axis=-1, keepdims=True)
+    # center by observed mean (deterministic anchor — not the latent mean,
+    # which would shift the intercept α_p for every MCMC draw)
+    x_s_true_c = x_s_true - jnp.mean(x_s_obs)
 
-    # priors: extension of 2D model + one-to-one expectation on beta_s
+    # priors: extension of 2D model + one-to-one expectation on beta_s (Model B)
     alpha_p = numpyro.sample("alpha_p", dist.Normal(alpha_p_mu, alpha_p_sigma))
     beta_p  = numpyro.sample("beta_p",  dist.Normal(0.0, beta_p_sigma))
-    beta_s  = numpyro.sample("beta_s",  dist.Normal(1.0, beta_s_sigma))  # <-- Model B
-
+    beta_s  = numpyro.sample("beta_s",  dist.Normal(1.0, beta_s_sigma))
     epsilon = numpyro.sample("epsilon", dist.HalfNormal(epsilon_p_sigma))
-    numpyro.deterministic("sigma_p", epsilon)
 
-    # broadcast
-    alpha_b  = alpha_p[..., None]
-    beta_p_b = beta_p[..., None]
-    beta_s_b = beta_s[..., None]
-    eps_b    = epsilon[..., None]
-
-    # science equation
-    mu = alpha_b + beta_p_b * x_m_c + beta_s_b * x_s_true_c
-    numpyro.deterministic("mu_planetary_metallicity", mu)
-
-    obs_sigma = jnp.sqrt(sig_meas_p**2 + eps_b**2)
+    mu = alpha_p[..., None] + beta_p[..., None] * x_m_c + beta_s[..., None] * x_s_true_c
+    obs_sigma = jnp.sqrt(sig_meas_p**2 + epsilon[..., None]**2)
     numpyro.sample("y_planet", dist.Normal(mu, obs_sigma), obs=y_planet)
+
+
+def _met_model_no_scatter(
+    *,
+    x_m_c: jax.Array,
+    x_s_obs: jax.Array,
+    sig_meas_p: jax.Array,
+    sig_meas_s: jax.Array,
+    y_planet: Optional[jax.Array],
+    alpha_p_mu: float,
+    alpha_p_sigma: float,
+    beta_p_sigma: float,
+    beta_s_sigma: float,
+    epsilon_p_sigma: float,
+) -> None:
+    """Full 3D model with epsilon forced to zero (for WAIC comparison)."""
+    x_s_true = numpyro.sample("x_s_true", dist.Normal(x_s_obs, sig_meas_s))
+    x_s_true_c = x_s_true - jnp.mean(x_s_obs)
+    alpha_p = numpyro.sample("alpha_p", dist.Normal(alpha_p_mu, alpha_p_sigma))
+    beta_p  = numpyro.sample("beta_p",  dist.Normal(0.0, beta_p_sigma))
+    beta_s  = numpyro.sample("beta_s",  dist.Normal(1.0, beta_s_sigma))
+    numpyro.deterministic("epsilon", jnp.zeros(()))
+    mu = alpha_p[..., None] + beta_p[..., None] * x_m_c + beta_s[..., None] * x_s_true_c
+    numpyro.sample("y_planet", dist.Normal(mu, sig_meas_p), obs=y_planet)
+
+
+def _met_model_no_stellar(
+    *,
+    x_m_c: jax.Array,
+    x_s_obs: jax.Array,
+    sig_meas_p: jax.Array,
+    sig_meas_s: jax.Array,
+    y_planet: Optional[jax.Array],
+    alpha_p_mu: float,
+    alpha_p_sigma: float,
+    beta_p_sigma: float,
+    beta_s_sigma: float,
+    epsilon_p_sigma: float,
+) -> None:
+    """2D mass-only model with beta_s=0 (for WAIC comparison vs full 3D)."""
+    alpha_p = numpyro.sample("alpha_p", dist.Normal(alpha_p_mu, alpha_p_sigma))
+    beta_p  = numpyro.sample("beta_p",  dist.Normal(0.0, beta_p_sigma))
+    numpyro.deterministic("beta_s", jnp.zeros(()))
+    epsilon = numpyro.sample("epsilon", dist.HalfNormal(epsilon_p_sigma))
+    mu = alpha_p[..., None] + beta_p[..., None] * x_m_c
+    obs_sigma = jnp.sqrt(sig_meas_p**2 + epsilon[..., None]**2)
+    numpyro.sample("y_planet", dist.Normal(mu, obs_sigma), obs=y_planet)
+
+
+def make_met_model_fixed_scatter(fixed_value: float):
+    """
+    Factory: returns a MetModel variant with epsilon fixed to ``fixed_value``
+    (not sampled).  Useful for scatter-threshold experiments.
+    """
+    fv = float(fixed_value)
+
+    def _fixed_scatter_model(
+        *,
+        x_m_c: jax.Array,
+        x_s_obs: jax.Array,
+        sig_meas_p: jax.Array,
+        sig_meas_s: jax.Array,
+        y_planet: Optional[jax.Array],
+        alpha_p_mu: float,
+        alpha_p_sigma: float,
+        beta_p_sigma: float,
+        beta_s_sigma: float,
+        epsilon_p_sigma: float,
+    ) -> None:
+        x_s_true = numpyro.sample("x_s_true", dist.Normal(x_s_obs, sig_meas_s))
+        x_s_true_c = x_s_true - jnp.mean(x_s_obs)
+        alpha_p = numpyro.sample("alpha_p", dist.Normal(alpha_p_mu, alpha_p_sigma))
+        beta_p  = numpyro.sample("beta_p",  dist.Normal(0.0, beta_p_sigma))
+        beta_s  = numpyro.sample("beta_s",  dist.Normal(1.0, beta_s_sigma))
+        numpyro.deterministic("epsilon", jnp.array(fv))
+        mu = alpha_p[..., None] + beta_p[..., None] * x_m_c + beta_s[..., None] * x_s_true_c
+        obs_sigma = jnp.sqrt(sig_meas_p**2 + jnp.array(fv) ** 2)
+        numpyro.sample("y_planet", dist.Normal(mu, obs_sigma), obs=y_planet)
+
+    return _fixed_scatter_model
 
 def _fit_met_survey_numpyro(
     x_mass: npt.ArrayLike,
@@ -237,7 +307,10 @@ def _fit_met_survey_numpyro(
     *,
     cfg: "ModelConfig",
     random_seed: int,
+    model_fn=None,
 ) -> az.InferenceData:
+    if model_fn is None:
+        model_fn = _met_model
     x_m = _as_1d_float(x_mass)
     x_s_obs = _as_1d_float(x_star)
     yp = _as_1d_float(y_planet)
@@ -292,7 +365,7 @@ def _fit_met_survey_numpyro(
 
     rng_key = jax.random.PRNGKey(int(random_seed))
     mcmc, ll = _run_nuts(
-        _met_model,
+        model_fn,
         rng_key,
         draws=cfg.draws,
         tune=cfg.tune,
@@ -311,10 +384,10 @@ def _fit_met_survey_numpyro(
 
 @dataclass(frozen=True, slots=True)
 class ModelConfig:
-    draws: int = 1200
-    tune: int = 400
-    target_accept: float = 0.85
-    num_chains: int = 1
+    draws: int = 800
+    tune: int = 800
+    target_accept: float = 0.90
+    num_chains: int = 4
     compute_log_lik: bool = False
     chain_method: Literal["parallel", "vectorized", "sequential"] = "sequential"
     jax_dtype: JaxDType = jnp.float32
@@ -323,6 +396,7 @@ class ModelConfig:
 def _fit_one_job(job: Tuple[ModelKind, Dict[str, Any], Survey, int]) -> Dict[str, Any]:
     """
     Module-level for multiprocessing spawn pickling.
+    Supports kinds: "lin", "met", "met_no_scatter", "met_no_stellar".
     """
     kind, cfg_dict, survey, seed = job
     cfg = ModelConfig(**cfg_dict)
@@ -343,14 +417,22 @@ def _fit_one_job(job: Tuple[ModelKind, Dict[str, Any], Survey, int]) -> Dict[str
             "survey_id": survey.survey_id,
             "class_label": survey.class_label,
             "N": survey.n,
-            "L_met": float(survey.leverage(col="log(X_H2O)")),
             "L_logM": float(survey.leverage(col="logM")),
             "alpha_mean": a["mean"], "alpha_sd": a["sd"], "alpha_hdi16": a["hdi16"], "alpha_hdi84": a["hdi84"],
             "beta_mean":  b["mean"], "beta_sd":  b["sd"], "beta_hdi16":  b["hdi16"], "beta_hdi84":  b["hdi84"],
             "sigma_mean": e["mean"], "sigma_sd": e["sd"], "sigma_hdi16": e["hdi16"], "sigma_hdi84": e["hdi84"],
         }
 
-    # kind == "met"
+    # MetModel variants — choose model function by kind string
+    _met_dispatch: Dict[str, Any] = {
+        "met":             _met_model,
+        "met_no_scatter":  _met_model_no_scatter,
+        "met_no_stellar":  _met_model_no_stellar,
+    }
+    if kind not in _met_dispatch:
+        raise ValueError(f"Unknown model kind: {kind!r}")
+    model_fn = _met_dispatch[kind]
+
     idata = _fit_met_survey_numpyro(
         survey.df["logM"].to_numpy(),
         survey.df["Star Metallicity"].to_numpy(),
@@ -361,22 +443,31 @@ def _fit_one_job(job: Tuple[ModelKind, Dict[str, Any], Survey, int]) -> Dict[str
         survey.df["Star Metallicity Error Upper"].to_numpy(),
         cfg=cfg,
         random_seed=int(seed),
+        model_fn=model_fn,
     )
-    # FIXED: Extract the correct parameter names
-    a = _scalar_stats_from_idata(idata, "alpha_p")
+
+    a  = _scalar_stats_from_idata(idata, "alpha_p")
     bp = _scalar_stats_from_idata(idata, "beta_p")
     bs = _scalar_stats_from_idata(idata, "beta_s")
-    e = _scalar_stats_from_idata(idata, "epsilon")
-    
+    e  = _scalar_stats_from_idata(idata, "epsilon")
+
     return {
         "survey_id": survey.survey_id,
         "class_label": survey.class_label,
         "N": survey.n,
-        "L_met": float(survey.leverage(col="log(X_H2O)")),
-        "L_logM": float(survey.leverage(col="logM")),
+        "L_mass": float(survey.leverage(
+            col="logM",
+            err_lower_col="logM_err_lower",
+            err_upper_col="logM_err_upper",
+        )),
+        "L_stellar": float(survey.leverage(
+            col="Star Metallicity",
+            err_lower_col="Star Metallicity Error Lower",
+            err_upper_col="Star Metallicity Error Upper",
+        )),
         "alpha_p_mean": a["mean"], "alpha_p_sd": a["sd"], "alpha_p_hdi16": a["hdi16"], "alpha_p_hdi84": a["hdi84"],
-        "beta_p_mean": bp["mean"], "beta_p_sd": bp["sd"], "beta_p_hdi16": bp["hdi16"], "beta_p_hdi84": bp["hdi84"],
-        "beta_s_mean": bs["mean"], "beta_s_sd": bs["sd"], "beta_s_hdi16": bs["hdi16"], "beta_s_hdi84": bs["hdi84"],
+        "beta_p_mean":  bp["mean"], "beta_p_sd":  bp["sd"], "beta_p_hdi16":  bp["hdi16"], "beta_p_hdi84":  bp["hdi84"],
+        "beta_s_mean":  bs["mean"], "beta_s_sd":  bs["sd"], "beta_s_hdi16":  bs["hdi16"], "beta_s_hdi84":  bs["hdi84"],
         "epsilon_mean": e["mean"], "epsilon_sd": e["sd"], "epsilon_hdi16": e["hdi16"], "epsilon_hdi84": e["hdi84"],
     }
 # -------------------------
@@ -397,10 +488,10 @@ class Model:
 
     def __init__(
         self,
-        draws: int = 1200,
-        tune: int = 400,
-        target_accept: float = 0.85,
-        num_chains: int = 1,
+        draws: int = 800,
+        tune: int = 800,
+        target_accept: float = 0.90,
+        num_chains: int = 4,
         compute_log_lik: bool = False,
         chain_method: Literal["parallel", "vectorized", "sequential"] = "sequential",
         jax_dtype: JaxDType = jnp.float32,
@@ -488,10 +579,10 @@ class MetModel:
 
     def __init__(
         self,
-        draws: int = 1200,
-        tune: int = 400,
-        target_accept: float = 0.85,
-        num_chains: int = 1,
+        draws: int = 800,
+        tune: int = 800,
+        target_accept: float = 0.90,
+        num_chains: int = 4,
         compute_log_lik: bool = False,
         chain_method: Literal["parallel", "vectorized", "sequential"] = "sequential",
         jax_dtype: JaxDType = jnp.float32,
@@ -506,7 +597,13 @@ class MetModel:
             jax_dtype=jax_dtype,
         )
 
-    def fit_survey(self, survey: Survey, random_seed: int = 14) -> az.InferenceData:
+    def fit_survey(
+        self,
+        survey: Survey,
+        random_seed: int = 14,
+        model_fn=None,
+    ) -> az.InferenceData:
+        """Fit one survey. Pass ``model_fn`` to use a variant (e.g. ``_met_model_no_stellar``)."""
         df = survey.df
         return _fit_met_survey_numpyro(
             df["logM"].to_numpy(),
@@ -518,10 +615,10 @@ class MetModel:
             df["Star Metallicity Error Upper"].to_numpy(),
             cfg=self.cfg,
             random_seed=int(random_seed),
+            model_fn=model_fn,
         )
 
     def summarize_single(self, survey: Survey, idata: az.InferenceData) -> Dict[str, Any]:
-        # FIXED: Extract correct parameter names
         a  = _scalar_stats_from_idata(idata, "alpha_p")
         bp = _scalar_stats_from_idata(idata, "beta_p")
         bs = _scalar_stats_from_idata(idata, "beta_s")
@@ -531,11 +628,19 @@ class MetModel:
             "survey_id": survey.survey_id,
             "class_label": survey.class_label,
             "N": survey.n,
-            "L_met": float(survey.leverage(col="log(X_H2O)")),
-            "L_logM": float(survey.leverage(col="logM")),
+            "L_mass": float(survey.leverage(
+                col="logM",
+                err_lower_col="logM_err_lower",
+                err_upper_col="logM_err_upper",
+            )),
+            "L_stellar": float(survey.leverage(
+                col="Star Metallicity",
+                err_lower_col="Star Metallicity Error Lower",
+                err_upper_col="Star Metallicity Error Upper",
+            )),
             "alpha_p_mean": a["mean"], "alpha_p_sd": a["sd"], "alpha_p_hdi16": a["hdi16"], "alpha_p_hdi84": a["hdi84"],
-            "beta_p_mean": bp["mean"], "beta_p_sd": bp["sd"], "beta_p_hdi16": bp["hdi16"], "beta_p_hdi84": bp["hdi84"],
-            "beta_s_mean": bs["mean"], "beta_s_sd": bs["sd"], "beta_s_hdi16": bs["hdi16"], "beta_s_hdi84": bs["hdi84"],
+            "beta_p_mean":  bp["mean"], "beta_p_sd":  bp["sd"], "beta_p_hdi16":  bp["hdi16"], "beta_p_hdi84":  bp["hdi84"],
+            "beta_s_mean":  bs["mean"], "beta_s_sd":  bs["sd"], "beta_s_hdi16":  bs["hdi16"], "beta_s_hdi84":  bs["hdi84"],
             "epsilon_mean": e["mean"], "epsilon_sd": e["sd"], "epsilon_hdi16": e["hdi16"], "epsilon_hdi84": e["hdi84"],
         }
 
@@ -544,21 +649,40 @@ class MetModel:
         surveys: Sequence[Survey],
         seed: int = 321,
         *,
+        model_kind: ModelKind = "met",
         parallel: bool = False,
         processes: int = 4,
     ) -> pd.DataFrame:
+        """
+        Fit ``model_kind`` to every survey.
+
+        ``model_kind`` may be one of:
+          - ``"met"``            : full 3-D model (default)
+          - ``"met_no_scatter"`` : epsilon fixed at 0 (WAIC comparison)
+          - ``"met_no_stellar"`` : 2-D mass-only (WAIC comparison)
+        """
         rng = np.random.default_rng(int(seed))
+
+        # choose model function for sequential path
+        _dispatch: Dict[str, Any] = {
+            "met":            _met_model,
+            "met_no_scatter": _met_model_no_scatter,
+            "met_no_stellar": _met_model_no_stellar,
+        }
+        if model_kind not in _dispatch:
+            raise ValueError(f"Unknown model_kind: {model_kind!r}")
+        model_fn = _dispatch[model_kind]
 
         if not parallel:
             rows: List[Dict[str, Any]] = []
             for survey in surveys:
                 rs = int(rng.integers(0, 2**32 - 1))
-                idata = self.fit_survey(survey, random_seed=rs)
+                idata = self.fit_survey(survey, random_seed=rs, model_fn=model_fn)
                 rows.append(self.summarize_single(survey, idata))
             return pd.DataFrame(rows).sort_values("survey_id").reset_index(drop=True)
 
         jobs: List[Tuple[ModelKind, Dict[str, Any], Survey, int]] = [
-            ("met", asdict(self.cfg), survey, int(rng.integers(0, 2**32 - 1)))
+            (model_kind, asdict(self.cfg), survey, int(rng.integers(0, 2**32 - 1)))
             for survey in surveys
         ]
         ctx = get_context("spawn")  # macOS safe

@@ -100,17 +100,29 @@ class Survey:
         return self.planet_index.get(str(name), [])
 
     # leverage and metrics testing.
-    def leverage(self, col: str = "logM") -> float:
+    def leverage(
+        self,
+        col: str = "logM",
+        err_lower_col: Optional[str] = None,
+        err_upper_col: Optional[str] = None,
+    ) -> float:
         """
         Leverage of the specified column.
         Default: leverage of logM.
-        1D leverage proxy:
-        L = sqrt( sum_i (x_i - mean(x))^2 )
-        computed on finite values only.
+
+        Unweighted (default):
+            L = sqrt( sum_i (x_i - mean(x))^2 )
+
+        Error-weighted (when err_lower_col and err_upper_col are provided):
+            L = sqrt( sum_i (x_i - mean(x))^2 / sigma_i^2 )
+            where sigma_i = 0.5 * (|err_lower| + |err_upper|)
+
+        Only finite values are used. Columns that do not exist in df are
+        silently ignored (falls back to unweighted).
 
         Notes
         -----
-        - This is essentially sqrt(n) * std(x).
+        - Unweighted form is essentially sqrt(n) * std(x).
         Grows with both spread and sample size.
         """
         arr = self.df[col].to_numpy(float)
@@ -118,6 +130,15 @@ class Survey:
         arr = arr[m]
         if arr.size < 2:
             return 0.0
+        if (
+            err_lower_col and err_upper_col
+            and err_lower_col in self.df.columns
+            and err_upper_col in self.df.columns
+        ):
+            el = np.abs(self.df[err_lower_col].to_numpy(float)[m])
+            eu = np.abs(self.df[err_upper_col].to_numpy(float)[m])
+            sigma = np.maximum(0.5 * (el + eu), 1e-10)
+            return float(np.sqrt(np.sum((arr - arr.mean()) ** 2 / sigma ** 2)))
         return float(np.sqrt(np.sum((arr - arr.mean()) ** 2)))
 
     def leverage_2D(self, col_x: str = "logM", col_y: str = "Star Metallicity") -> float:
