@@ -6,6 +6,7 @@
 *.aux
 *.log
 *.gif
+*.pyc
 results/
 plots/
 dataset/*.tex
