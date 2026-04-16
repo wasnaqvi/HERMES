@@ -13,3 +13,4 @@ dataset/*.tex
 src/HierModel.py
 /dataset/.claude
 .claude/settings.local.json
+src/.claude
