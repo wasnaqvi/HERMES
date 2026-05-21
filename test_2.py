@@ -29,9 +29,9 @@ def add_nested_S_legend(ax):
     ]
     labels = [
         r"S1 (entire Ariel MCS)",
-        r"S2 (logM $\geq$ $Q_{25}$)",
-        r"S3 (logM $\geq$ $Q_{50}$)",
-        r"S4 (logM $\geq$ $Q_{75}$)",
+        r"S2 (logM $\geq$ $M_{25}$)",
+        r"S3 (logM $\geq$ $M_{50}$)",
+        r"S4 (logM $\geq$ $M_{75}$)",
     ]
     ax.legend(
         handles,
@@ -73,8 +73,8 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
     ax.hist(s3, bins=bin_edges, alpha=0.35, color="green",  edgecolor="none", zorder=3)
     ax.hist(s4, bins=bin_edges, alpha=0.35, color="red",    edgecolor="none", zorder=3)
 
-    ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$", fontsize=19)
-    ax.set_ylabel("Count", fontsize=16)
+    ax.set_xlabel(r"$\log\!\left(\frac{M}{M_\mathrm{J}}\right)$", fontsize=21)
+    ax.set_ylabel("Count", fontsize=22)
 
     # --- Secondary top axis: log(M / M_Earth) ---
     LOG_MJ_OVER_ME = np.log10(317.828)
@@ -87,8 +87,13 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
         ),
     )
     ax_top.set_xlabel(
-        r"$\log\!\left(\frac{M}{M_\oplus}\right)$", fontsize=18, labelpad=10
+        r"$\log\!\left(\frac{M}{M_\oplus}\right)$", fontsize=21, labelpad=10
     )
+    ax.tick_params(axis="both", which="major", labelsize=18, length=7, width=1.5)
+    ax.tick_params(axis="both", which="minor", labelsize=16, length=4, width=1.2)
+
+    ax_top.tick_params(axis="x", which="major", labelsize=18, length=7, width=1.5)
+    ax_top.tick_params(axis="x", which="minor", labelsize=16, length=4, width=1.2)
 
     add_nested_S_legend(ax)
     fig.tight_layout()
@@ -98,7 +103,7 @@ def plot_logm_nested_counts(sampler: SurveySampler, bins: int = 30):
 if __name__ == "__main__":
     hermes = HermesData.from_csv("dataset/hermes_synthetic_data_0.3.0.csv")
     sampler = SurveySampler(hermes, rng_seed=42)
-
+ 
     fig, ax = plot_logm_nested_counts(sampler, bins=30)
-    fig.savefig("results/Ariel_logM_nested_counts_no_title.pdf", bbox_inches="tight")
+    fig.savefig("results/Ariel_logM_nested_counts_no_title.svg", bbox_inches="tight")
     plt.show()

@@ -586,35 +586,6 @@ def make_leverage_panels_from_df(
 
 
 # ----------------- design space: N vs std with L contours --------------------
-def make_design_space_N_vs_std(
-    surveys,
-    col: str = "logM",
-    out_path: str | Path = "plots/design_N_vs_std_logM.png",
-) -> None:
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    N = np.array([s.n for s in surveys], float)
-    std = np.array([np.nanstd(s.df[col].to_numpy(float)) for s in surveys], float)
-    labels = [s.class_label for s in surveys]
-
-    fig, ax = plt.subplots()
-
-    unique_labels = sorted(set(labels))
-    for lab in unique_labels:
-        mask = np.array([l == lab for l in labels])
-        ax.scatter(N[mask], std[mask], label=lab, alpha=0.7)
-
-    ax.set_xlabel("N (survey size)")
-    ax.set_ylabel(f"Std dev of {col}")
-    ax.set_title("Survey design space: N vs std dev")
-    ax.set_ylim(bottom=0.0,top=1.0)
-    ax.grid(True, alpha=0.3)
-    ax.legend(title="class label")
-
-    fig.savefig(out_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
 def make_design_space_N_with_L_contours(
     surveys,
     col: str = "logM",
@@ -627,6 +598,9 @@ def make_design_space_N_with_L_contours(
     N = np.array([s.n for s in surveys], float)
     std = np.array([np.nanstd(s.df[col].to_numpy(float)) for s in surveys], float)
     labels = [s.class_label for s in surveys]
+    finite = np.isfinite(N) & np.isfinite(std)
+    if not np.any(finite):
+        raise ValueError("No finite survey sizes or standard deviations to plot.")
 
     L_actual = np.sqrt((N - 1) * std**2)
 
@@ -635,6 +609,11 @@ def make_design_space_N_with_L_contours(
         L_levels = np.quantile(L_actual[np.isfinite(L_actual)], qs)
 
     L_levels = list(L_levels)
+    x_min = float(np.nanmin(N[finite]))
+    x_max = float(np.nanmax(N[finite]))
+    x_span = max(x_max - x_min, 1.0)
+    x_pad = 0.06 * x_span
+    y_top = max(1.2, float(np.nanmax(std[finite])) * 1.15)
 
     fig, ax = plt.subplots(figsize=(7.0, 3.6))
 
@@ -643,39 +622,50 @@ def make_design_space_N_with_L_contours(
         mask = np.array([l == lab for l in labels])
         ax.scatter(N[mask], std[mask], label=lab, alpha=0.8)
 
-    # Contour colors matching the class colours
-    contour_colors = ["C0", "C1", "C2", "C3"]
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.set_ylim(bottom=0.0, top=y_top)
 
-    N_grid = np.linspace(max(1.0, N.min()), N.max(), 300)
-    for i, L0 in enumerate(L_levels):
-        color = contour_colors[i % len(contour_colors)]
+    N_grid = np.linspace(max(1.0, x_min), x_max, 300)
+    for L0 in L_levels:
+        color = "black"
         std_curve = L0 / np.sqrt(N_grid)
-        ax.plot(N_grid, std_curve, linestyle="--", color=color, linewidth=2)
-        # Place label inside the plot, near the right end but with enough padding
-        idx = -15  # step back from the edge so text stays inside
+        visible = np.isfinite(std_curve) & (std_curve <= 0.97 * y_top)
+        if not np.any(visible):
+            continue
+
+        x_curve = N_grid[visible]
+        y_curve = std_curve[visible]
+        ax.plot(x_curve, y_curve, linestyle="--", color=color, linewidth=2)
+
+        label_x = x_max - 0.02 * x_span
+        idx = int(np.argmin(np.abs(x_curve - label_x)))
         ax.annotate(
-            f"L≈{L0:.1f}",
-            xy=(N_grid[idx], std_curve[idx]),
-            xytext=(10, -2),
+            f"L={L0:.1f}",
+            xy=(x_curve[idx], y_curve[idx]),
+            xytext=(-4, 0),
             textcoords="offset points",
-            fontsize=10,
+            fontsize=13,
             color=color,
             fontweight="bold",
-            ha="left",
+            ha="right",
             va="center",
-            clip_on=True,
+            annotation_clip=False,
         )
 
     ax.set_xlabel("N", fontsize=14)
-    ax.set_ylim(bottom=0.0, top=1.2)
     ax.set_ylabel(r"$\sigma_M$", fontsize=14)
 
     ax.legend(
         title="class label",
-        loc="upper left",
+        loc="upper right",
+        bbox_to_anchor=(0.98, 0.98),
+        borderaxespad=0.2,
         fontsize=12,
         title_fontsize=13,
         frameon=True,
+        framealpha=0.85,
+        facecolor="white",
+        edgecolor="none",
         markerscale=1.2,
         handlelength=1.5,
         handletextpad=0.4,
