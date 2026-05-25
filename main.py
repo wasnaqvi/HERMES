@@ -15,7 +15,7 @@ import numpyro
 from src.Model import _met_model, _met_model_no_stellar
 from src.Survey import SurveySampler
 from src.data import HermesData
-from src.scatter_threshold import ScatterThresholdConfig
+from src.scatter_threshold import ScatterThresholdConfig, make_synthetic_catalog
 from src.utils import (
     add_zscores,
     apply_style,
@@ -37,7 +37,7 @@ from src.utils import (
 warnings.filterwarnings("ignore")
 numpyro.set_platform("cpu")
 
-DATA_PATH = Path("dataset/hermes_synthetic_data_0.6.0.csv")
+DATA_PATH = Path("dataset/hermes_synthetic_data_0.7.0.csv")
 RESULTS_DIR = Path("results")
 PLOTS_DIR = RESULTS_DIR / "plots"
 
@@ -52,6 +52,9 @@ NUM_CHAINS = 4
 COMPUTE_WAIC = True
 PRIMARY = "3D Model"
 RUN_SCATTER_THRESHOLD = True
+INJECTED_BETA_S = 1.0
+INJECTED_EPSILON = 0.53
+INJECTED_NOISE_SEED = 42
 
 SCATTER_CFG = ScatterThresholdConfig(
     scatter_grid=(0.1, 0.2, 0.3, 0.4, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0),
@@ -83,15 +86,24 @@ def main() -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    hermes = HermesData.from_csv(str(DATA_PATH))
-    hermes_df = hermes.df
-    print(f"Loaded {len(hermes_df)} rows from {DATA_PATH}")
+    base_hermes = HermesData.from_csv(str(DATA_PATH))
+    hermes_df = make_synthetic_catalog(
+        base_hermes.df,
+        INJECTED_EPSILON,
+        beta_s_true=INJECTED_BETA_S,
+        fixed_noise_seed=INJECTED_NOISE_SEED,
+    )
+    hermes = HermesData(hermes_df)
+    print(
+        f"Loaded {len(hermes_df)} rows from {DATA_PATH} "
+        f"and injected beta_s={INJECTED_BETA_S}, epsilon={INJECTED_EPSILON}"
+    )
 
     sampler = SurveySampler(hermes, rng_seed=SURVEY_SEED)
     surveys = sampler.sample_grid(N_GRID, n_reps_per_combo=N_REPS)
     print(f"Built {len(surveys)} surveys")
 
-    csv_path = RESULTS_DIR / "hermes_src_results.csv"
+    csv_path = RESULTS_DIR / "hermes_src_results_qstellar.csv"
     if csv_path.exists():
         print(f"Loading cached results from {csv_path}")
         df_results = pd.read_csv(csv_path)

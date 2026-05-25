@@ -274,10 +274,28 @@ def plot_sigma_vs_leverage(
             sd_col, ylabel = params[0]
             if sd_col not in sub.columns:
                 continue
-            fig, axes = plt.subplots(1, 2, figsize=(10.5, 4))
+            fig, axes = plt.subplots(1, 2, figsize=(10.5, 4), sharey=True)
             fig.suptitle(rf"$N={n0}$", fontsize=12)
-            scatter_fits(axes[0], sub["L_mass"].values, sub[sd_col].values, labels, ylabel, r"$L_{\mathrm{mass}}$")
-            scatter_fits(axes[1], sub["L_stellar"].values, sub[sd_col].values, labels, ylabel, r"$L_{\mathrm{stellar}}$")
+            scatter_fits(
+                axes[0],
+                sub["L_mass"].values,
+                sub[sd_col].values,
+                labels,
+                ylabel,
+                "Leverage on Planetary Mass",
+            )
+            scatter_fits(
+                axes[1],
+                sub["L_stellar"].values,
+                sub[sd_col].values,
+                labels,
+                ylabel,
+                "Leverage on Stellar Metallicity",
+            )
+            y0 = min(ax.get_ylim()[0] for ax in axes)
+            y1 = max(ax.get_ylim()[1] for ax in axes)
+            for ax in axes:
+                ax.set_ylim(y0, y1)
             add_legend(axes[0], sub)
             fig.tight_layout()
             savefig(plots_dir / f"{fname}_N{n0}.pdf")

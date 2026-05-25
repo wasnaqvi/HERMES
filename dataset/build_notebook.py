@@ -52,14 +52,33 @@ print('JAX devices:', jax.devices())"""))
 # ===================== CELL 2: Load data (local) =====================
 cells.append(md(r"""## 1. Load Data"""))
 
-cells.append(code(r"""DATA_PATH = Path('hermes_synthetic_data_0.3.0.csv')
+cells.append(code(r"""DATA_PATH = Path('hermes_synthetic_data_0.7.0.csv')
 if not DATA_PATH.exists():
-    DATA_PATH = Path(__file__).parent / 'hermes_synthetic_data_0.3.0.csv' if '__file__' in dir() else DATA_PATH
+    DATA_PATH = Path(__file__).parent / 'hermes_synthetic_data_0.7.0.csv' if '__file__' in dir() else DATA_PATH
     if not DATA_PATH.exists():
-        raise FileNotFoundError(f'Put hermes_synthetic_data_0.2.0.csv in the working directory. Tried: {DATA_PATH}')
+        raise FileNotFoundError(f'Put hermes_synthetic_data_0.7.0.csv in the working directory. Tried: {DATA_PATH}')
 
-raw_df = pd.read_csv(DATA_PATH)
-print(f'Loaded {len(raw_df)} rows from {DATA_PATH}')
+base_df = pd.read_csv(DATA_PATH)
+
+BETA_S_TRUE = 1.0
+INTRINSIC_SCATTER_TRUE = 0.53
+INJECTED_NOISE_SEED = 42
+
+_rng_z = np.random.default_rng(INJECTED_NOISE_SEED)
+z_fixed = _rng_z.normal(0, 1, size=len(base_df))
+
+raw_df = base_df.copy()
+raw_df['log(X_H2O)'] = (
+    -1.09 * raw_df['logM'].to_numpy(float)
+    + BETA_S_TRUE * raw_df['Star Metallicity'].to_numpy(float)
+    - 0.95
+    + INTRINSIC_SCATTER_TRUE * z_fixed
+)
+
+print(
+    f'Loaded {len(raw_df)} rows from {DATA_PATH} and injected '
+    f'beta_s={BETA_S_TRUE}, epsilon={INTRINSIC_SCATTER_TRUE}'
+)
 raw_df.head()"""))
 
 # ===================== CELL: Config =====================
@@ -531,11 +550,15 @@ cells.append(code(r"""df_pl = df_results[(df_results['model']==PRIMARY)&(df_resu
 for N0 in sorted(df_pl['N'].unique()):
     sub = df_pl[df_pl['N']==N0]
     if len(sub)<3: continue
-    fig,axes = plt.subplots(1,2,figsize=(10.5,4))
+    fig,axes = plt.subplots(1,2,figsize=(10.5,4),sharey=True)
     fig.suptitle(rf'Fixed $N={N0}$: $\sigma_{{\beta_p}}$ vs Leverage',fontsize=12)
     labels = sub['class_label'].to_numpy(str)
-    scatter_fits(axes[0],sub['L_mass'].values,sub['beta_p_sd'].values,labels,r'$\sigma_{\beta_p}$',r'$L_{\mathrm{mass}}$')
-    scatter_fits(axes[1],sub['L_stellar'].values,sub['beta_p_sd'].values,labels,r'$\sigma_{\beta_p}$',r'$L_{\mathrm{stellar}}$')
+    scatter_fits(axes[0],sub['L_mass'].values,sub['beta_p_sd'].values,labels,r'$\sigma_{\beta_p}$','Leverage on Planetary Mass')
+    scatter_fits(axes[1],sub['L_stellar'].values,sub['beta_p_sd'].values,labels,r'$\sigma_{\beta_p}$','Leverage on Stellar Metallicity')
+    y0 = min(ax.get_ylim()[0] for ax in axes)
+    y1 = max(ax.get_ylim()[1] for ax in axes)
+    for ax in axes:
+        ax.set_ylim(y0, y1)
     add_legend(axes[0],sub); fig.tight_layout(); plt.show()"""))
 
 # ===================== CELL: beta_s vs both leverages =====================
@@ -1150,8 +1173,10 @@ print(f'Total fits: {n_scat_fits}')"""))
 
 # ===================== CELL: Synthetic data regeneration =====================
 cells.append(code(r"""# Load base dataset — keep logM, stellar met columns; regenerate log(X_H2O) per sigma
-base_df = pd.read_csv('hermes_synthetic_data_0.4.0.csv')
+base_df = pd.read_csv('hermes_synthetic_data_0.7.0.csv')
 base_logM = base_df['logM'].to_numpy(float)
+base_stellar_met = base_df['Star Metallicity'].to_numpy(float)
+beta_s_true = 1.0
 
 # Fixed unit-normal noise vector (seed=42) — same draws scaled by each sigma
 _rng_z = np.random.default_rng(42)
@@ -1159,10 +1184,10 @@ z_fixed = _rng_z.normal(0, 1, size=len(base_df))
 
 def make_synthetic(sigma):
     df = base_df.copy()
-    df['log(X_H2O)'] = -1.09 * base_logM - 0.95 + sigma * z_fixed
+    df['log(X_H2O)'] = -1.09 * base_logM + beta_s_true * base_stellar_met - 0.95 + sigma * z_fixed
     return df
 
-print(f'Base dataset: {len(base_df)} planets from hermes_synthetic_data_0.4.0.csv')
+print(f'Base dataset: {len(base_df)} planets from hermes_synthetic_data_0.7.0.csv')
 _test = make_synthetic(0.5)
 print(f'Test (sigma=0.5): {len(_test)} rows, log(X_H2O) range: [{_test["log(X_H2O)"].min():.2f}, {_test["log(X_H2O)"].max():.2f}]')"""))
 
