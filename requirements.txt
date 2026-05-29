@@ -1,0 +1,9 @@
+numpy
+pandas
+matplotlib
+scipy
+arviz
+jax[cpu]
+numpyro
+PyPDF2
+imageio
