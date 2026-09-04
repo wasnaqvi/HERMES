@@ -591,6 +591,8 @@ def make_design_space_N_with_L_contours(
     col: str = "logM",
     out_path: str | Path = "plots/design_N_vs_std_logM.pdf",
     L_levels: Sequence[float] | None = None,
+    legend_loc: str = "upper left",
+    legend_bbox: tuple[float, float] = (1.005, 1.0),
 ):
     out_path = Path(out_path)
     _ensure_dir_for(out_path)
@@ -650,20 +652,26 @@ def make_design_space_N_with_L_contours(
             ha="right",
             va="center",
             annotation_clip=False,
+            # opaque patch so the dashed contour does not strike through the label
+            bbox=dict(boxstyle="round,pad=0.15", facecolor="white",
+                      edgecolor="none", alpha=0.9),
         )
 
     ax.set_xlabel("N", fontsize=14)
     ax.set_ylabel(r"$\sigma_M$", fontsize=14)
 
+    # Placed outside the axes: with the full class/N grid there is no empty
+    # corner left inside -- the upper right carries the S1 points at large N
+    # and the topmost L-contour label, the lower left the S3/S4 points.
     ax.legend(
         title="class label",
-        loc="upper right",
-        bbox_to_anchor=(0.98, 0.98),
+        loc=legend_loc,
+        bbox_to_anchor=legend_bbox,
         borderaxespad=0.2,
         fontsize=12,
         title_fontsize=13,
         frameon=True,
-        framealpha=0.85,
+        framealpha=1.0,
         facecolor="white",
         edgecolor="none",
         markerscale=1.2,
